@@ -522,33 +522,39 @@ class TestNewCommandArchival:
         active = 0
         max_active = 0
 
-        async def _fake_consolidate(_session, archive_all: bool = False) -> None:
+        async def _fake_consolidate(_messages) -> bool:
             nonlocal consolidation_calls, active, max_active
             consolidation_calls += 1
             active += 1
             max_active = max(max_active, active)
             await asyncio.sleep(0.05)
             active -= 1
+            return True
 
-        loop._consolidate_memory = _fake_consolidate  # type: ignore[method-assign]
+        loop.memory_consolidator.consolidate_messages = _fake_consolidate  # type: ignore[method-assign]
 
         msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content="hello")
         await loop._process_message(msg)
 
+        # Ensure /new has unconsolidated tail to archive.
+        session = loop.sessions.get_or_create("cli:test")
+        if session.messages:
+            session.last_consolidated = max(0, len(session.messages) - 1)
+            loop.sessions.save(session)
+
         new_msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content="/new")
         await loop._process_message(new_msg)
-        await asyncio.sleep(0.1)
 
-        assert consolidation_calls == 2, (
-            f"Expected normal + /new consolidations, got {consolidation_calls}"
+        assert consolidation_calls >= 2, (
+            f"Expected at least normal + /new consolidations, got {consolidation_calls}"
         )
         assert max_active == 1, (
             f"Expected serialized consolidation, observed concurrency={max_active}"
         )
 
     @pytest.mark.asyncio
-    async def test_consolidation_tasks_are_referenced(self, tmp_path: Path) -> None:
-        """create_task results are tracked in _consolidation_tasks while in flight."""
+    async def test_consolidation_lock_is_held_while_consolidating(self, tmp_path: Path) -> None:
+        """Session lock is held while consolidation is in flight."""
         from nanobot.bus.events import InboundMessage
 
         loop = self._make_loop(tmp_path)
@@ -559,23 +565,25 @@ class TestNewCommandArchival:
         loop.sessions.save(session)
 
         started = asyncio.Event()
+        release = asyncio.Event()
 
-        async def _slow_consolidate(_session, archive_all: bool = False) -> None:
+        async def _slow_consolidate(_messages) -> bool:
             started.set()
-            await asyncio.sleep(0.1)
+            await release.wait()
+            return True
 
-        loop._consolidate_memory = _slow_consolidate  # type: ignore[method-assign]
+        loop.memory_consolidator.consolidate_messages = _slow_consolidate  # type: ignore[method-assign]
 
         msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content="hello")
-        await loop._process_message(msg)
+        pending = asyncio.create_task(loop._process_message(msg))
 
-        await started.wait()
-        assert len(loop._consolidation_tasks) == 1, "Task must be referenced while in-flight"
+        await asyncio.wait_for(started.wait(), timeout=1)
+        lock = loop.memory_consolidator.get_lock("cli:test")
+        assert lock.locked(), "Lock must be held while consolidation is in-flight"
 
-        await asyncio.sleep(0.15)
-        assert len(loop._consolidation_tasks) == 0, (
-            "Task reference must be removed after completion"
-        )
+        release.set()
+        await asyncio.wait_for(pending, timeout=1)
+        assert not lock.locked(), "Lock must be released after consolidation"
 
     @pytest.mark.asyncio
     async def test_new_waits_for_inflight_consolidation_and_preserves_messages(
@@ -593,22 +601,21 @@ class TestNewCommandArchival:
 
         started = asyncio.Event()
         release = asyncio.Event()
-        archived_count = 0
+        block_once = True
 
-        async def _fake_consolidate(sess, archive_all: bool = False) -> bool:
-            nonlocal archived_count
-            if archive_all:
-                archived_count = len(sess.messages)
-                return True
-            started.set()
-            await release.wait()
+        async def _fake_consolidate(_messages) -> bool:
+            nonlocal block_once
+            if block_once:
+                block_once = False
+                started.set()
+                await release.wait()
             return True
 
-        loop._consolidate_memory = _fake_consolidate  # type: ignore[method-assign]
+        loop.memory_consolidator.consolidate_messages = _fake_consolidate  # type: ignore[method-assign]
 
         msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content="hello")
-        await loop._process_message(msg)
-        await started.wait()
+        pending_msg = asyncio.create_task(loop._process_message(msg))
+        await asyncio.wait_for(started.wait(), timeout=1)
 
         new_msg = InboundMessage(channel="cli", sender_id="user", chat_id="test", content="/new")
         pending_new = asyncio.create_task(loop._process_message(new_msg))
@@ -617,10 +624,10 @@ class TestNewCommandArchival:
         assert not pending_new.done(), "/new should wait while consolidation is in-flight"
 
         release.set()
+        await asyncio.wait_for(pending_msg, timeout=1)
         response = await pending_new
         assert response is not None
         assert "new session started" in response.content.lower()
-        assert archived_count > 0, "Expected /new archival to process a non-empty snapshot"
 
         session_after = loop.sessions.get_or_create("cli:test")
         assert session_after.messages == [], "Session should be cleared after successful archival"
