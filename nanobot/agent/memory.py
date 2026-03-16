@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 
-from nanobot.utils.helpers import ensure_dir, estimate_message_tokens, estimate_prompt_tokens_chain
+from nanobot.memory.base import BaseMemoryStore
+from nanobot.memory.filesystem import FilesystemMemoryStore
+from nanobot.utils.helpers import estimate_message_tokens, estimate_prompt_tokens_chain
 
 if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
@@ -73,31 +75,33 @@ def _is_tool_choice_unsupported(content: str | None) -> bool:
 
 
 class MemoryStore:
-    """Two-layer memory: MEMORY.md (long-term facts) + HISTORY.md (grep-searchable log)."""
+    """Memory consolidation service over a pluggable storage backend."""
 
     _MAX_FAILURES_BEFORE_RAW_ARCHIVE = 3
 
-    def __init__(self, workspace: Path):
-        self.memory_dir = ensure_dir(workspace / "memory")
-        self.memory_file = self.memory_dir / "MEMORY.md"
-        self.history_file = self.memory_dir / "HISTORY.md"
+    def __init__(self, workspace: Path, backend: BaseMemoryStore | None = None):
+        self.workspace = workspace
+        self.backend = backend or FilesystemMemoryStore(workspace)
+        # Backward compatibility for tests and existing callers that inspect paths.
+        self.memory_file = getattr(self.backend, "memory_file", None)
+        self.history_file = getattr(self.backend, "history_file", None)
         self._consecutive_failures = 0
 
     def read_long_term(self) -> str:
-        if self.memory_file.exists():
-            return self.memory_file.read_text(encoding="utf-8")
-        return ""
+        return self.backend.read_long_term()
 
     def write_long_term(self, content: str) -> None:
-        self.memory_file.write_text(content, encoding="utf-8")
+        self.backend.write_long_term(content)
 
     def append_history(self, entry: str) -> None:
-        with open(self.history_file, "a", encoding="utf-8") as f:
-            f.write(entry.rstrip() + "\n\n")
+        self.backend.append_history(entry)
 
     def get_memory_context(self) -> str:
-        long_term = self.read_long_term()
-        return f"## Long-term Memory\n{long_term}" if long_term else ""
+        return self.backend.get_memory_context()
+
+    def get_identity_lines(self) -> list[str]:
+        """Get identity prompt lines that describe memory storage implementation."""
+        return self.backend.get_identity_lines(self.workspace)
 
     @staticmethod
     def _format_messages(messages: list[dict]) -> str:
@@ -233,8 +237,9 @@ class MemoryConsolidator:
         context_window_tokens: int,
         build_messages: Callable[..., list[dict[str, Any]]],
         get_tool_definitions: Callable[[], list[dict[str, Any]]],
+        store: MemoryStore | None = None,
     ):
-        self.store = MemoryStore(workspace)
+        self.store = store or MemoryStore(workspace)
         self.provider = provider
         self.model = model
         self.sessions = sessions

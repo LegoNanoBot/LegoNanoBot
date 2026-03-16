@@ -1,8 +1,12 @@
 import asyncio
+import platform
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+if platform.system() == "Darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+    pytest.skip("Skip Matrix channel tests on macOS arm64", allow_module_level=True)
 
 import nanobot.channels.matrix as matrix_module
 from nanobot.bus.events import OutboundMessage

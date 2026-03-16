@@ -337,6 +337,15 @@ def _make_provider(config: Config):
     return provider
 
 
+def _make_memory_store(config: Config):
+    """Create pluggable memory store from config."""
+    from nanobot.agent.memory import MemoryStore
+    from nanobot.memory.registry import create_memory_store
+
+    backend = create_memory_store(config, config.workspace_path)
+    return MemoryStore(config.workspace_path, backend=backend)
+
+
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
     """Load config and optionally override the active workspace."""
     from nanobot.config.loader import load_config, set_config_path
@@ -400,6 +409,7 @@ def gateway(
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(config)
+    memory_store = _make_memory_store(config)
     session_manager = SessionManager(config.workspace_path)
 
     # Create cron service first (callback set after agent creation)
@@ -422,6 +432,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        memory_store=memory_store,
     )
 
     # Set cron callback (needs agent)
@@ -580,6 +591,7 @@ def agent(
 
     bus = MessageBus()
     provider = _make_provider(config)
+    memory_store = _make_memory_store(config)
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
@@ -604,6 +616,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        memory_store=memory_store,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on

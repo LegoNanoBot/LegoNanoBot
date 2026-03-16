@@ -1057,6 +1057,56 @@ Notes:
 
 </details>
 
+<details>
+<summary><b>Adding a New Memory Backend Plugin (Developer Guide)</b></summary>
+
+nanobot supports pluggable memory backends via Python entry points.
+
+Complete example (SQLite backend): `examples/memory-plugin-sqlite/`
+
+Register a memory factory in your plugin `pyproject.toml`:
+
+```toml
+[project.entry-points."nanobot.memory_factories"]
+my-memory = "plugin_bot_xxx.memory_factory:create_memory_store"
+```
+
+Factory signature:
+
+```python
+def create_memory_store(*, config, workspace, backend_name, memory_config):
+    ...
+```
+
+Your factory must return an object implementing:
+
+- `read_long_term() -> str`
+- `write_long_term(content: str) -> None`
+- `append_history(entry: str) -> None`
+
+Config for memory plugins goes under `memory.plugins`:
+
+```json
+{
+  "memory": {
+    "backend": "my_memory",
+    "plugins": {
+      "my_memory": {
+        "anyCustomField": "value"
+      }
+    }
+  }
+}
+```
+
+Notes:
+
+- Entry point name `my-memory` maps to backend name `my_memory` (hyphen and underscore are treated equivalently).
+- Built-in backend remains `filesystem` (default).
+- Plugin config object is passed through as `memory_config`.
+
+</details>
+
 
 ### Web Search
 

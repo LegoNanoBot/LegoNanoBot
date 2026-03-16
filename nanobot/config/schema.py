@@ -237,6 +237,28 @@ class ChannelsConfig(Base):
     plugins: dict[str, ChannelPluginConfig] = Field(default_factory=dict)  # Third-party channel configs
 
 
+class MemoryFilesystemConfig(Base):
+    """Built-in filesystem memory backend configuration."""
+
+    dir: str = "memory"
+    memory_file: str = "MEMORY.md"
+    history_file: str = "HISTORY.md"
+
+
+class MemoryPluginConfig(Base):
+    """Generic plugin memory backend configuration."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
+
+
+class MemoryConfig(Base):
+    """Configuration for memory backend selection."""
+
+    backend: str = "filesystem"  # built-in: filesystem; plugins use entry point name
+    filesystem: MemoryFilesystemConfig = Field(default_factory=MemoryFilesystemConfig)
+    plugins: dict[str, MemoryPluginConfig] = Field(default_factory=dict)
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -368,6 +390,7 @@ class Config(BaseSettings):
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
@@ -484,5 +507,20 @@ class Config(BaseSettings):
             if spec and (spec.is_gateway or spec.is_local) and spec.default_api_base:
                 return spec.default_api_base
         return None
+
+    def get_memory_backend_name(self) -> str:
+        """Get normalized memory backend name from config."""
+        return (self.memory.backend or "filesystem").replace("-", "_")
+
+    def get_memory_plugin_config(self, backend_name: str | None = None) -> dict[str, Any]:
+        """Get plugin memory config for a backend; returns empty dict if missing."""
+        normalized = (backend_name or self.get_memory_backend_name()).replace("-", "_")
+        section = self.memory.plugins.get(normalized)
+        if section is not None:
+            return section.model_dump(by_alias=True)
+        for raw_name, plugin_cfg in self.memory.plugins.items():
+            if raw_name.replace("-", "_") == normalized:
+                return plugin_cfg.model_dump(by_alias=True)
+        return {}
 
     model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__")
