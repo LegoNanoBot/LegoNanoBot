@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
@@ -235,6 +235,33 @@ class ChannelsConfig(Base):
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
     wecom: WecomConfig = Field(default_factory=WecomConfig)
     plugins: dict[str, ChannelPluginConfig] = Field(default_factory=dict)  # Third-party channel configs
+
+    @model_validator(mode="before")
+    @classmethod
+    def _collect_plugin_channels(cls, data: Any) -> Any:
+        """Move unknown top-level channel dicts into the *plugins* sub-dict.
+
+        This lets users write a flat config:
+            channels:
+              bilibili:
+                enabled: true
+        instead of the nested form:
+            channels:
+              plugins:
+                bilibili:
+                  enabled: true
+        Both forms are accepted; the nested form takes precedence on conflict.
+        """
+        if not isinstance(data, dict):
+            return data
+        known = set(cls.model_fields.keys())
+        plugins = dict(data.get("plugins", {}) or {})
+        for key in list(data.keys()):
+            if key not in known and isinstance(data[key], dict):
+                plugins.setdefault(key, data.pop(key))
+        if plugins:
+            data["plugins"] = plugins
+        return data
 
 
 class MemoryFilesystemConfig(Base):
