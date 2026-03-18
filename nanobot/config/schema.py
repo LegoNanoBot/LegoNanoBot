@@ -350,6 +350,33 @@ class ProvidersConfig(Base):
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
     plugins: dict[str, ProviderConfig] = Field(default_factory=dict)  # Third-party provider configs
 
+    @model_validator(mode="before")
+    @classmethod
+    def _collect_plugin_providers(cls, data: Any) -> Any:
+        """Move unknown top-level provider dicts into the *plugins* sub-dict.
+
+        Allows flat config:
+            providers:
+              bailian:
+                apiKey: "xxx"
+        instead of:
+            providers:
+              plugins:
+                bailian:
+                  apiKey: "xxx"
+        Both forms are accepted; the nested form takes precedence on conflict.
+        """
+        if not isinstance(data, dict):
+            return data
+        known = set(cls.model_fields.keys())
+        plugins = dict(data.get("plugins", {}) or {})
+        for key in list(data.keys()):
+            if key not in known and isinstance(data[key], dict):
+                plugins.setdefault(key, data.pop(key))
+        if plugins:
+            data["plugins"] = plugins
+        return data
+
 
 class HeartbeatConfig(Base):
     """Heartbeat service configuration."""

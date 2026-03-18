@@ -408,6 +408,8 @@ def gateway(
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
+    from nanobot.providers.provider_plugins import validate_provider_plugins
+    validate_provider_plugins(config)
     provider = _make_provider(config)
     memory_store = _make_memory_store(config)
     session_manager = SessionManager(config.workspace_path)

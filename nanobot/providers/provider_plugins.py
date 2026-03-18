@@ -68,3 +68,43 @@ def create_provider_by_factory(
         provider_name=provider_name,
         provider_config=provider_config,
     )
+
+
+def validate_provider_plugins(config: "Config") -> None:
+    """Validate configured plugin providers at startup.
+
+    For each entry in config.providers.plugins, check:
+    1. Whether a matching ProviderSpec is loaded (from nanobot.provider_specs)
+    2. Whether a matching ProviderFactory is available (from nanobot.provider_factories)
+    Log warnings for any misconfigurations.
+    """
+    from nanobot.providers.registry import find_by_name
+
+    if not config.providers.plugins:
+        return
+
+    factories = load_provider_factories()
+    for plugin_name, plugin_config in config.providers.plugins.items():
+        normalized = plugin_name.replace("-", "_")
+        spec = find_by_name(normalized)
+        factory = factories.get(normalized)
+
+        if not spec and not factory:
+            logger.warning(
+                "Provider plugin '{}' is configured but neither spec nor factory found. "
+                "Is the plugin installed? (pip install nanobot-provider-{}-plugin)",
+                plugin_name,
+                plugin_name,
+            )
+        elif spec and not factory:
+            logger.info(
+                "{} provider plugin loaded (spec only, will use LiteLLM)",
+                spec.label,
+            )
+        elif factory and not spec:
+            logger.info(
+                "{} provider plugin loaded (factory only, requires explicit provider setting)",
+                plugin_name,
+            )
+        else:
+            logger.info("{} provider plugin loaded (spec + factory)", spec.label)

@@ -75,7 +75,7 @@ cd examples/channel-plugin-dingtalk-richtext
 pip install -e .
 ```
 
-Use it by configuring `channels.plugins.dingtalk_richtext` in your config.
+Use it by configuring `channels.dingtalk_richtext` in your config (the legacy `channels.plugins.dingtalk_richtext` form is also supported).
 
 ### 2) Memory Plugin: SQLite Backend
 
@@ -86,7 +86,7 @@ cd examples/memory-plugin-sqlite
 pip install -e .
 ```
 
-Use it by setting `memory.backend` to `sqlite_memory` (or `sqlite-memory`) and configuring `memory.plugins`.
+Use it by setting `memory.backend` to `sqlite_memory` (or `sqlite-memory`) and adding plugin config under `memory.plugins`.
 
 ### 3) Provider Plugin: Alibaba BaiLian
 
@@ -98,7 +98,7 @@ pip install -e .
 nanobot provider reload
 ```
 
-Use it by adding provider config under `providers.plugins` and selecting the plugin provider in `agents.defaults.provider`.
+Use it by adding provider config under `providers.aliyun_bailian` in your config and selecting the plugin provider in `agents.defaults.provider` (the legacy `providers.plugins.aliyun_bailian` form is also supported).
 
 ## ✨ Features
 
