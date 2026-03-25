@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from nanobot.agent.memory import MemoryStore
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
     from nanobot.cron.service import CronService
+    from nanobot.xray.observer import XRayObserver
 
 
 class AgentLoop:
@@ -113,6 +115,7 @@ class AgentLoop:
             get_tool_definitions=self.tools.get_definitions,
             store=shared_memory_store,
         )
+        self.observer: XRayObserver | None = None
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -184,23 +187,73 @@ class AgentLoop:
         self,
         initial_messages: list[dict],
         on_progress: Callable[..., Awaitable[None]] | None = None,
+        session_key: str | None = None,
+        channel: str | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop."""
+        run_id = uuid.uuid4().hex[:12]
         messages = initial_messages
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        total_tokens = 0
+
+        if self.observer:
+            try:
+                await self.observer.emit(
+                    run_id=run_id,
+                    event_type="agent_start",
+                    data={"session_key": session_key, "channel": channel, "model": self.model}
+                )
+            except Exception:
+                pass
 
         while iteration < self.max_iterations:
             iteration += 1
 
             tool_defs = self.tools.get_definitions()
 
+            if self.observer:
+                try:
+                    last_msg_summary = ""
+                    if messages:
+                        last_msg = messages[-1]
+                        content = last_msg.get("content", "")
+                        if isinstance(content, str):
+                            last_msg_summary = content[:200]
+                    await self.observer.emit(
+                        run_id=run_id,
+                        event_type="llm_request",
+                        data={"model": self.model, "message_count": len(messages), "last_message_preview": last_msg_summary}
+                    )
+                except Exception:
+                    pass
+
             response = await self.provider.chat_with_retry(
                 messages=messages,
                 tools=tool_defs,
                 model=self.model,
             )
+
+            if self.observer:
+                try:
+                    usage_dict = {}
+                    if response.usage:
+                        usage_dict = {"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens, "total_tokens": response.usage.total_tokens}
+                        total_tokens += response.usage.total_tokens or 0
+                    tool_call_names = [tc.name for tc in response.tool_calls] if response.has_tool_calls else []
+                    await self.observer.emit(
+                        run_id=run_id,
+                        event_type="llm_response",
+                        data={
+                            "content_preview": (response.content or "")[:200],
+                            "tool_calls": tool_call_names,
+                            "usage": usage_dict,
+                            "finish_reason": response.finish_reason,
+                        }
+                    )
+                except Exception:
+                    pass
 
             if response.has_tool_calls:
                 if on_progress:
@@ -223,7 +276,7 @@ class AgentLoop:
                     tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tool_call.name, args_str[:200])
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    result = await self.tools.execute(tool_call.name, tool_call.arguments, run_id=run_id)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -248,6 +301,16 @@ class AgentLoop:
                 f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
                 "without completing the task. You can try breaking the task into smaller steps."
             )
+
+        if self.observer:
+            try:
+                await self.observer.emit(
+                    run_id=run_id,
+                    event_type="agent_end",
+                    data={"tools_used": tools_used, "iteration_count": iteration, "total_tokens": total_tokens}
+                )
+            except Exception:
+                pass
 
         return final_content, tools_used, messages
 
@@ -305,10 +368,28 @@ class AgentLoop:
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message under the global lock."""
+        if self.observer:
+            try:
+                await self.observer.emit(
+                    run_id=msg.session_key or f"{msg.channel}:{msg.chat_id}",
+                    event_type="message_in",
+                    data={"channel": msg.channel, "sender_id": msg.sender_id, "chat_id": msg.chat_id, "content_preview": msg.content[:200] if msg.content else ""}
+                )
+            except Exception:
+                pass
         async with self._processing_lock:
             try:
                 response = await self._process_message(msg)
                 if response is not None:
+                    if self.observer:
+                        try:
+                            await self.observer.emit(
+                                run_id=msg.session_key or f"{msg.channel}:{msg.chat_id}",
+                                event_type="message_out",
+                                data={"channel": response.channel, "chat_id": response.chat_id, "content_preview": response.content[:200] if response.content else ""}
+                            )
+                        except Exception:
+                            pass
                     await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
                     await self.bus.publish_outbound(OutboundMessage(
@@ -360,7 +441,7 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _, all_msgs = await self._run_agent_loop(messages)
+            final_content, _, all_msgs = await self._run_agent_loop(messages, session_key=key, channel=channel)
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             await self.memory_consolidator.maybe_consolidate_by_tokens(session)
@@ -432,6 +513,7 @@ class AgentLoop:
 
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages, on_progress=on_progress or _bus_progress,
+            session_key=key, channel=msg.channel,
         )
 
         if final_content is None:

@@ -1,10 +1,13 @@
 """Subagent manager for background task execution."""
 
+from __future__ import annotations
+
 import asyncio
 import json
+import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -17,6 +20,9 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import ExecToolConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.utils.helpers import build_assistant_message
+
+if TYPE_CHECKING:
+    from nanobot.xray.observer import XRayObserver
 
 
 class SubagentManager:
@@ -45,6 +51,7 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        self.observer: XRayObserver | None = None
 
     async def spawn(
         self,
@@ -75,6 +82,16 @@ class SubagentManager:
 
         bg_task.add_done_callback(_cleanup)
 
+        if self.observer:
+            try:
+                await self.observer.emit(
+                    run_id=task_id,
+                    event_type="subagent_spawn",
+                    data={"label": display_label, "task_preview": task[:200], "task_id": task_id}
+                )
+            except Exception:
+                pass
+
         logger.info("Spawned subagent [{}]: {}", task_id, display_label)
         return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
 
@@ -87,6 +104,7 @@ class SubagentManager:
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
+        t0 = time.time()
 
         try:
             # Build subagent tools (no message tool, no spawn tool)
@@ -156,11 +174,35 @@ class SubagentManager:
                 final_result = "Task completed but no final response was generated."
 
             logger.info("Subagent [{}] completed successfully", task_id)
+
+            if self.observer:
+                try:
+                    duration_s = time.time() - t0
+                    await self.observer.emit(
+                        run_id=task_id,
+                        event_type="subagent_done",
+                        data={"task_id": task_id, "result_preview": final_result[:500] if final_result else "", "duration_s": duration_s, "status": "ok"}
+                    )
+                except Exception:
+                    pass
+
             await self._announce_result(task_id, label, task, final_result, origin, "ok")
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
+
+            if self.observer:
+                try:
+                    duration_s = time.time() - t0
+                    await self.observer.emit(
+                        run_id=task_id,
+                        event_type="subagent_done",
+                        data={"task_id": task_id, "result_preview": error_msg[:500], "duration_s": duration_s, "status": "error"}
+                    )
+                except Exception:
+                    pass
+
             await self._announce_result(task_id, label, task, error_msg, origin, "error")
 
     async def _announce_result(
