@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Agent {{ run_id[:12] }}... - NanoBot X-Ray{% endblock %}
+
+{% block header %}
+<div class="flex items-center gap-3">
+    <a href="/agents" class="text-gray-400 hover:text-white">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+        </svg>
+    </a>
+    <span>Agent Run: <span class="font-mono text-emerald-400">{{ run_id[:16] }}...</span></span>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Run Info Card -->
+<div class="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-6">
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">Run ID</p>
+            <p class="font-mono text-sm text-emerald-400 break-all">{{ run_id }}</p>
+        </div>
+        <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">Channel</p>
+            <p class="text-sm">{{ detail.get('channel', '-') if detail else '-' }}</p>
+        </div>
+        <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">Status</p>
+            {% set status = detail.get('status', 'unknown') if detail else 'unknown' %}
+            <span class="px-2 py-1 rounded text-xs inline-flex items-center gap-1
+                {% if status == 'completed' %}bg-emerald-900 text-emerald-300
+                {% elif status == 'running' %}bg-blue-900 text-blue-300
+                {% elif status == 'error' %}bg-red-900 text-red-300
+                {% else %}bg-gray-700 text-gray-300{% endif %}">
+                {% if status == 'running' %}
+                <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                {% endif %}
+                {{ status }}
+            </span>
+        </div>
+        <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">Duration</p>
+            <p class="text-sm">
+                {% if detail and detail.get('start_time') and detail.get('end_time') %}
+                {{ "%.2f"|format(detail.end_time - detail.start_time) }}s
+                {% elif detail and detail.get('duration') %}
+                {{ "%.2f"|format(detail.duration) }}s
+                {% else %}-{% endif %}
+            </p>
+        </div>
+        <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Tokens</p>
+            <p class="text-sm">{{ "{:,}".format(detail.get('total_tokens', 0)|int) if detail else '0' }}</p>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="mt-4 pt-4 border-t border-gray-700 flex items-center gap-3">
+        <a href="/agents/{{ run_id }}/messages" 
+           class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors">
+            View Messages
+        </a>
+        <a href="/api/v1/agents/{{ run_id }}/events" target="_blank"
+           class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
+            Raw Events JSON
+        </a>
+    </div>
+</div>
+
+<!-- Event Timeline -->
+<div class="bg-gray-800 rounded-lg border border-gray-700">
+    <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+        <h3 class="font-semibold">Event Timeline</h3>
+        <span class="text-sm text-gray-400">{{ events|length }} events</span>
+    </div>
+    
+    <div class="p-4">
+        {% if events %}
+        <div class="timeline relative pl-8">
+            <!-- Timeline line -->
+            <div class="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-700"></div>
+            
+            {% for event in events %}
+            {% set event_type = event.get('event_type', 'unknown') %}
+            {% set event_data = event.get('data', {}) %}
+            
+            <div class="timeline-item relative pb-6 last:pb-0">
+                <!-- Timeline dot -->
+                <div class="absolute -left-5 w-4 h-4 rounded-full border-2 
+                    {% if event_type in ['agent_start', 'agent_end'] %}border-emerald-400 bg-emerald-900
+                    {% elif event_type in ['llm_request', 'llm_response'] %}border-blue-400 bg-blue-900
+                    {% elif event_type in ['tool_call_start', 'tool_call_end'] %}border-yellow-400 bg-yellow-900
+                    {% elif event_type == 'error' %}border-red-400 bg-red-900
+                    {% elif event_type in ['subagent_spawn', 'subagent_done'] %}border-purple-400 bg-purple-900
+                    {% else %}border-gray-400 bg-gray-700{% endif %}">
+                </div>
+                
+                <!-- Event content -->
+                <details class="group">
+                    <summary class="flex items-center justify-between cursor-pointer list-none">
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs px-2 py-0.5 rounded
+                                {% if event_type in ['agent_start', 'agent_end'] %}bg-emerald-900 text-emerald-300
+                                {% elif event_type in ['llm_request', 'llm_response'] %}bg-blue-900 text-blue-300
+                                {% elif event_type in ['tool_call_start', 'tool_call_end'] %}bg-yellow-900 text-yellow-300
+                                {% elif event_type == 'error' %}bg-red-900 text-red-300
+                                {% elif event_type in ['subagent_spawn', 'subagent_done'] %}bg-purple-900 text-purple-300
+                                {% else %}bg-gray-700 text-gray-300{% endif %}">
+                                {{ event_type }}
+                            </span>
+                            
+                            <!-- Event summary -->
+                            <span class="text-sm text-gray-300">
+                                {% if event_type == 'tool_call_start' %}
+                                {{ event_data.get('tool_name', 'unknown tool') }}
+                                {% elif event_type == 'llm_request' %}
+                                {{ event_data.get('model', 'LLM') }} request
+                                {% elif event_type == 'llm_response' %}
+                                {{ event_data.get('prompt_tokens', 0) }} + {{ event_data.get('completion_tokens', 0) }} tokens
+                                {% elif event_type == 'error' %}
+                                {{ event_data.get('message', 'Unknown error')[:50] }}{% if (event_data.get('message', '')|length) > 50 %}...{% endif %}
+                                {% else %}
+                                &nbsp;
+                                {% endif %}
+                            </span>
+                        </div>
+                        
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-gray-500">
+                                {% if event.get('timestamp') %}
+                                <script>document.write(formatTimestamp({{ event.timestamp }}))</script>
+                                <noscript>{{ event.timestamp|int }}</noscript>
+                                {% endif %}
+                            </span>
+                            <svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </div>
+                    </summary>
+                    
+                    <!-- Expanded content -->
+                    <div class="mt-3 ml-2 p-3 bg-gray-900 rounded border border-gray-700">
+                        <div class="text-xs text-gray-500 mb-2">Event ID: {{ event.get('id', '-') }}</div>
+                        
+                        {% if event_type == 'llm_request' %}
+                        <div class="space-y-2">
+                            <div class="text-xs text-gray-400">Model: {{ event_data.get('model', '-') }}</div>
+                            {% if event_data.get('messages') %}
+                            <div class="text-xs text-gray-400">Messages: {{ event_data.messages|length }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        {% elif event_type == 'llm_response' %}
+                        <div class="grid grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <span class="text-gray-400">Prompt:</span>
+                                <span class="text-blue-400">{{ "{:,}".format(event_data.get('prompt_tokens', 0)|int) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-400">Completion:</span>
+                                <span class="text-emerald-400">{{ "{:,}".format(event_data.get('completion_tokens', 0)|int) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-400">Total:</span>
+                                <span class="text-yellow-400">{{ "{:,}".format(event_data.get('total_tokens', 0)|int) }}</span>
+                            </div>
+                        </div>
+                        {% if event_data.get('content') %}
+                        <div class="mt-3">
+                            <div class="text-xs text-gray-400 mb-1">Response:</div>
+                            <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.content[:1000] }}{% if (event_data.content|length) > 1000 %}...{% endif %}</pre>
+                        </div>
+                        {% endif %}
+                        
+                        {% elif event_type == 'tool_call_start' %}
+                        <div class="space-y-2">
+                            <div class="text-sm"><span class="text-gray-400">Tool:</span> <span class="text-yellow-400">{{ event_data.get('tool_name', '-') }}</span></div>
+                            {% if event_data.get('arguments') %}
+                            <div>
+                                <div class="text-xs text-gray-400 mb-1">Arguments:</div>
+                                <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.arguments | tojson(indent=2) }}</pre>
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        {% elif event_type == 'tool_call_end' %}
+                        <div class="space-y-2">
+                            <div class="text-sm"><span class="text-gray-400">Tool:</span> <span class="text-yellow-400">{{ event_data.get('tool_name', '-') }}</span></div>
+                            {% if event_data.get('result') %}
+                            <div>
+                                <div class="text-xs text-gray-400 mb-1">Result:</div>
+                                <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.result[:2000] if event_data.result is string else (event_data.result | tojson(indent=2))[:2000] }}{% if (event_data.result|string|length) > 2000 %}...{% endif %}</pre>
+                            </div>
+                            {% endif %}
+                            {% if event_data.get('error') %}
+                            <div class="text-red-400 text-sm">Error: {{ event_data.error }}</div>
+                            {% endif %}
+                        </div>
+                        
+                        {% elif event_type == 'error' %}
+                        <div class="text-red-400">
+                            <div class="font-medium">{{ event_data.get('error_type', 'Error') }}</div>
+                            <pre class="mt-2 text-xs bg-red-900/30 p-2 rounded overflow-x-auto">{{ event_data.get('message', 'No message') }}</pre>
+                            {% if event_data.get('traceback') %}
+                            <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.traceback }}</pre>
+                            {% endif %}
+                        </div>
+                        
+                        {% else %}
+                        <pre class="text-xs overflow-x-auto">{{ event_data | tojson(indent=2) }}</pre>
+                        {% endif %}
+                    </div>
+                </details>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12 text-gray-500">
+            <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+            <p class="text-lg">No events found</p>
+            <p class="text-sm mt-1">Events for this run will appear here</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

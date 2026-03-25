@@ -1,0 +1,38 @@
+<!-- Agent Card Partial - for HTMX dynamic updates -->
+<div class="bg-gray-700/50 rounded-lg p-3 border border-gray-600">
+    <div class="flex items-center justify-between">
+        <a href="/agents/{{ run_id }}" class="text-emerald-400 font-mono text-sm hover:underline">
+            {{ run_id[:12] }}...
+        </a>
+        <span class="px-2 py-1 rounded text-xs
+            {% if info.get('status') == 'completed' %}bg-emerald-900 text-emerald-300
+            {% elif info.get('status') == 'running' %}bg-blue-900 text-blue-300
+            {% elif info.get('status') == 'error' %}bg-red-900 text-red-300
+            {% else %}bg-gray-700 text-gray-300{% endif %}">
+            {% if info.get('status') == 'running' %}
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse mr-1"></span>
+            {% endif %}
+            {{ info.get('status', 'unknown') }}
+        </span>
+    </div>
+    <div class="mt-2 text-gray-400 text-sm flex items-center gap-4">
+        <span class="flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+            </svg>
+            {{ info.get('channel', 'unknown') }}
+        </span>
+        {% if info.get('total_tokens') %}
+        <span class="flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            {{ "{:,}".format(info.total_tokens|int) }} tokens
+        </span>
+        {% endif %}
+    </div>
+    <div class="mt-2 flex gap-2">
+        <a href="/agents/{{ run_id }}" class="text-xs text-blue-400 hover:underline">Timeline</a>
+        <a href="/agents/{{ run_id }}/messages" class="text-xs text-blue-400 hover:underline">Messages</a>
+    </div>
+</div>

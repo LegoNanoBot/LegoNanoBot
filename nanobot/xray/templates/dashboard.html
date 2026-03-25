@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - NanoBot X-Ray{% endblock %}
+
+{% block header %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Stats cards -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <!-- Active Agents -->
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-400">Active Agents</p>
+                <p class="text-2xl font-bold text-emerald-400">{{ active_runs|length }}</p>
+            </div>
+            <div class="p-3 bg-emerald-900/50 rounded-lg">
+                <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Buffer Size -->
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-400">Event Buffer</p>
+                <p class="text-2xl font-bold text-blue-400">{{ buffer_size }}</p>
+            </div>
+            <div class="p-3 bg-blue-900/50 rounded-lg">
+                <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- Total Tokens -->
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-400">Total Tokens</p>
+                <p class="text-2xl font-bold text-yellow-400">{{ "{:,}".format(token_usage.get('total_tokens', 0)|int) }}</p>
+            </div>
+            <div class="p-3 bg-yellow-900/50 rounded-lg">
+                <svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+        </div>
+    </div>
+
+    <!-- SSE Subscribers -->
+    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-400">SSE Connections</p>
+                <p class="text-2xl font-bold text-purple-400">{{ sse_subscribers }}</p>
+            </div>
+            <div class="p-3 bg-purple-900/50 rounded-lg">
+                <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Active Agents Panel -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700">
+        <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+            <h3 class="font-semibold">Active Agents</h3>
+            <span class="text-xs text-gray-400">Auto-refreshes every 3s</span>
+        </div>
+        <div class="p-4" hx-get="/api/v1/agents/active" hx-trigger="every 3s" hx-swap="innerHTML" id="active-agents-list">
+            {% if active_runs %}
+                <div class="space-y-3">
+                {% for run_id, info in active_runs.items() %}
+                    <div class="bg-gray-700/50 rounded-lg p-3 border border-gray-600">
+                        <div class="flex items-center justify-between">
+                            <a href="/agents/{{ run_id }}" class="text-emerald-400 font-mono text-sm hover:underline">
+                                {{ run_id[:12] }}...
+                            </a>
+                            <span class="px-2 py-1 bg-emerald-900 text-emerald-300 rounded text-xs">
+                                {{ info.get('status', 'running') }}
+                            </span>
+                        </div>
+                        <div class="mt-2 text-gray-400 text-sm flex items-center gap-4">
+                            <span>Channel: {{ info.get('channel', 'unknown') }}</span>
+                            {% if info.get('start_time') %}
+                            <span>Started: {{ info.start_time|int }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center py-8 text-gray-500">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                    </svg>
+                    <p>No active agents</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Recent Runs Panel -->
+    <div class="bg-gray-800 rounded-lg border border-gray-700">
+        <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+            <h3 class="font-semibold">Recent Runs</h3>
+            <a href="/agents" class="text-sm text-emerald-400 hover:underline">View all</a>
+        </div>
+        <div class="overflow-x-auto">
+            {% if recent_runs %}
+            <table class="w-full text-sm">
+                <thead class="text-gray-400 text-xs uppercase bg-gray-700/50">
+                    <tr>
+                        <th class="px-4 py-2 text-left">Run ID</th>
+                        <th class="px-4 py-2 text-left">Channel</th>
+                        <th class="px-4 py-2 text-left">Status</th>
+                        <th class="px-4 py-2 text-right">Tokens</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-700">
+                    {% for run in recent_runs %}
+                    <tr class="hover:bg-gray-700/50">
+                        <td class="px-4 py-2">
+                            <a href="/agents/{{ run.run_id }}" class="text-emerald-400 font-mono hover:underline">
+                                {{ run.run_id[:12] if run.run_id else '-' }}...
+                            </a>
+                        </td>
+                        <td class="px-4 py-2 text-gray-300">{{ run.get('channel', '-') }}</td>
+                        <td class="px-4 py-2">
+                            {% set status = run.get('status', 'unknown') %}
+                            <span class="px-2 py-1 rounded text-xs
+                                {% if status == 'completed' %}bg-emerald-900 text-emerald-300
+                                {% elif status == 'running' %}bg-blue-900 text-blue-300
+                                {% elif status == 'error' %}bg-red-900 text-red-300
+                                {% else %}bg-gray-700 text-gray-300{% endif %}">
+                                {{ status }}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2 text-right text-gray-300">
+                            {{ "{:,}".format(run.get('total_tokens', 0)|int) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="text-center py-8 text-gray-500">
+                <p>No recent runs</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Real-time Event Stream -->
+<div class="mt-6 bg-gray-800 rounded-lg border border-gray-700">
+    <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+        <h3 class="font-semibold">Real-time Events</h3>
+        <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="text-xs text-gray-400">Live</span>
+        </div>
+    </div>
+    <div hx-ext="sse" sse-connect="/api/v1/events/stream" sse-swap="message" hx-swap="afterbegin">
+        <div id="event-stream" class="p-4 space-y-1 max-h-96 overflow-y-auto event-stream">
+            {% for event in recent_events %}
+            {% include "partials/event_row.html" %}
+            {% endfor %}
+            {% if not recent_events %}
+            <div class="text-center py-4 text-gray-500 text-sm" id="no-events-placeholder">
+                Waiting for events...
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Token Usage Summary -->
+<div class="mt-6">
+    {% include "partials/token_chart.html" %}
+</div>
+{% endblock %}

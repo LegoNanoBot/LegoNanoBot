@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Agents - NanoBot X-Ray{% endblock %}
+
+{% block header %}Agent Runs{% endblock %}
+
+{% block content %}
+<!-- Filter bar -->
+<div class="mb-6 flex items-center gap-2">
+    <span class="text-sm text-gray-400 mr-2">Filter:</span>
+    <a href="/agents" 
+       class="px-3 py-1.5 rounded-md text-sm transition-colors
+              {% if not status_filter %}bg-emerald-600 text-white{% else %}bg-gray-700 text-gray-300 hover:bg-gray-600{% endif %}">
+        All
+    </a>
+    <a href="/agents?status=active" 
+       class="px-3 py-1.5 rounded-md text-sm transition-colors
+              {% if status_filter == 'active' %}bg-emerald-600 text-white{% else %}bg-gray-700 text-gray-300 hover:bg-gray-600{% endif %}">
+        Active
+    </a>
+    <a href="/agents?status=completed" 
+       class="px-3 py-1.5 rounded-md text-sm transition-colors
+              {% if status_filter == 'completed' %}bg-emerald-600 text-white{% else %}bg-gray-700 text-gray-300 hover:bg-gray-600{% endif %}">
+        Completed
+    </a>
+    <div class="flex-1"></div>
+    <span class="text-sm text-gray-400">{{ runs|length }} runs</span>
+</div>
+
+<!-- Active Agents Section (if any) -->
+{% if active_runs %}
+<div class="mb-6">
+    <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Currently Active</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for run_id, info in active_runs.items() %}
+        <div class="bg-gray-800 rounded-lg p-4 border border-emerald-700 hover:border-emerald-500 transition-colors">
+            <div class="flex items-center justify-between mb-2">
+                <a href="/agents/{{ run_id }}" class="text-emerald-400 font-mono text-sm hover:underline">
+                    {{ run_id[:16] }}...
+                </a>
+                <span class="flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="text-xs text-emerald-400">Running</span>
+                </span>
+            </div>
+            <div class="text-gray-400 text-sm space-y-1">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                    <span>{{ info.get('channel', 'unknown') }}</span>
+                </div>
+            </div>
+            <div class="mt-3 flex gap-2">
+                <a href="/agents/{{ run_id }}" class="text-xs text-blue-400 hover:underline">Timeline</a>
+                <a href="/agents/{{ run_id }}/messages" class="text-xs text-blue-400 hover:underline">Messages</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Runs Table -->
+<div class="bg-gray-800 rounded-lg border border-gray-700">
+    <div class="p-4 border-b border-gray-700">
+        <h3 class="font-semibold">All Runs</h3>
+    </div>
+    <div class="overflow-x-auto">
+        {% if runs %}
+        <table class="w-full text-sm">
+            <thead class="text-gray-400 text-xs uppercase bg-gray-700/50">
+                <tr>
+                    <th class="px-4 py-3 text-left">Run ID</th>
+                    <th class="px-4 py-3 text-left">Channel</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">Started</th>
+                    <th class="px-4 py-3 text-left">Duration</th>
+                    <th class="px-4 py-3 text-right">Tokens</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700">
+                {% for run in runs %}
+                <tr class="hover:bg-gray-700/50 transition-colors">
+                    <td class="px-4 py-3">
+                        <a href="/agents/{{ run.run_id }}" class="text-emerald-400 font-mono hover:underline">
+                            {{ run.run_id[:16] if run.run_id else '-' }}...
+                        </a>
+                    </td>
+                    <td class="px-4 py-3 text-gray-300">{{ run.get('channel', '-') }}</td>
+                    <td class="px-4 py-3">
+                        {% set status = run.get('status', 'unknown') %}
+                        <span class="px-2 py-1 rounded text-xs inline-flex items-center gap-1
+                            {% if status == 'completed' %}bg-emerald-900 text-emerald-300
+                            {% elif status == 'running' %}bg-blue-900 text-blue-300
+                            {% elif status == 'error' %}bg-red-900 text-red-300
+                            {% else %}bg-gray-700 text-gray-300{% endif %}">
+                            {% if status == 'running' %}
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                            {% endif %}
+                            {{ status }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-400 text-xs">
+                        {% if run.get('start_time') %}
+                        <script>document.write(formatTimestamp({{ run.start_time }}))</script>
+                        <noscript>{{ run.start_time|int }}</noscript>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-gray-400 text-xs">
+                        {% if run.get('duration') %}
+                        {{ "%.1f"|format(run.duration) }}s
+                        {% elif run.get('start_time') and run.get('end_time') %}
+                        {{ "%.1f"|format(run.end_time - run.start_time) }}s
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right text-gray-300">
+                        {{ "{:,}".format(run.get('total_tokens', 0)|int) }}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="flex items-center justify-center gap-2">
+                            <a href="/agents/{{ run.run_id }}" 
+                               class="p-1.5 rounded hover:bg-gray-600 text-gray-400 hover:text-white transition-colors"
+                               title="View Timeline">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                                </svg>
+                            </a>
+                            <a href="/agents/{{ run.run_id }}/messages" 
+                               class="p-1.5 rounded hover:bg-gray-600 text-gray-400 hover:text-white transition-colors"
+                               title="View Messages">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                                </svg>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-12 text-gray-500">
+            <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+            </svg>
+            <p class="text-lg">No agent runs found</p>
+            <p class="text-sm mt-1">Agent runs will appear here when agents are executed</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

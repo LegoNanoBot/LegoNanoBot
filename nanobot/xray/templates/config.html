@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Config - NanoBot X-Ray{% endblock %}
+
+{% block header %}Configuration{% endblock %}
+
+{% block content %}
+<!-- Tab Navigation -->
+<div class="bg-gray-800 rounded-lg border border-gray-700 mb-6">
+    <div class="flex border-b border-gray-700 overflow-x-auto">
+        <button hx-get="/api/v1/config/memory" hx-target="#config-content" hx-swap="innerHTML"
+                class="config-tab px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 border-b-2 border-transparent focus:outline-none whitespace-nowrap"
+                onclick="setActiveTab(this)">
+            <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            Memory
+        </button>
+        <button hx-get="/api/v1/config/soul" hx-target="#config-content" hx-swap="innerHTML"
+                class="config-tab px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 border-b-2 border-transparent focus:outline-none whitespace-nowrap"
+                onclick="setActiveTab(this)">
+            <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+            </svg>
+            Soul
+        </button>
+        <button hx-get="/api/v1/config/skills" hx-target="#config-content" hx-swap="innerHTML"
+                class="config-tab px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 border-b-2 border-transparent focus:outline-none whitespace-nowrap"
+                onclick="setActiveTab(this)">
+            <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+            Skills
+        </button>
+        <button hx-get="/api/v1/config/mcp" hx-target="#config-content" hx-swap="innerHTML"
+                class="config-tab px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 border-b-2 border-transparent focus:outline-none whitespace-nowrap"
+                onclick="setActiveTab(this)">
+            <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            MCP
+        </button>
+        <button hx-get="/api/v1/config/tools" hx-target="#config-content" hx-swap="innerHTML"
+                class="config-tab px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 border-b-2 border-transparent focus:outline-none whitespace-nowrap"
+                onclick="setActiveTab(this)">
+            <svg class="w-4 h-4 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            Tools
+        </button>
+    </div>
+</div>
+
+<!-- Config Content Area -->
+<div id="config-content" class="bg-gray-800 rounded-lg border border-gray-700 p-6">
+    <div class="text-center py-12 text-gray-500">
+        <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path>
+        </svg>
+        <p class="text-lg">Select a configuration tab</p>
+        <p class="text-sm mt-1">Click on a tab above to view configuration details</p>
+    </div>
+</div>
+
+<script>
+function setActiveTab(clickedTab) {
+    // Remove active state from all tabs
+    document.querySelectorAll('.config-tab').forEach(tab => {
+        tab.classList.remove('border-emerald-400', 'text-emerald-400');
+        tab.classList.add('border-transparent', 'text-gray-300');
+    });
+    // Add active state to clicked tab
+    clickedTab.classList.remove('border-transparent', 'text-gray-300');
+    clickedTab.classList.add('border-emerald-400', 'text-emerald-400');
+}
+
+// Handle HTMX response to format JSON content
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'config-content') {
+        try {
+            // Try to parse and format JSON response
+            const content = evt.detail.target.textContent;
+            const json = JSON.parse(content);
+            evt.detail.target.innerHTML = formatConfigResponse(json);
+        } catch (e) {
+            // If not JSON, leave as is
+        }
+    }
+});
+
+function formatConfigResponse(data) {
+    let html = '<div class="space-y-4">';
+    
+    // Handle different config types
+    if (data.content !== undefined) {
+        // Memory or Soul content
+        if (data.available === false) {
+            html += '<div class="text-gray-500 text-center py-8">Not available</div>';
+        } else if (data.content) {
+            html += '<div class="mb-2">';
+            if (data.path) {
+                html += '<span class="text-xs text-gray-400">Path: ' + escapeHtml(data.path) + '</span>';
+            }
+            html += '</div>';
+            html += '<pre class="bg-gray-900 p-4 rounded overflow-auto max-h-[60vh] text-sm text-gray-300 whitespace-pre-wrap">' + escapeHtml(data.content) + '</pre>';
+        } else {
+            html += '<div class="text-gray-500 text-center py-8">No content</div>';
+        }
+    } else if (data.skills !== undefined) {
+        // Skills list
+        if (data.skills && data.skills.length > 0) {
+            html += '<div class="text-sm text-gray-400 mb-4">' + data.skills.length + ' skills loaded</div>';
+            data.skills.forEach(skill => {
+                html += '<details class="mb-2 bg-gray-900 rounded border border-gray-700">';
+                html += '<summary class="px-4 py-3 cursor-pointer hover:bg-gray-800 flex items-center justify-between">';
+                html += '<span class="font-medium text-emerald-400">' + escapeHtml(skill.name) + '</span>';
+                html += '<span class="text-xs text-gray-500">' + escapeHtml(skill.source || '') + '</span>';
+                html += '</summary>';
+                html += '<div class="px-4 py-3 border-t border-gray-700">';
+                if (skill.path) {
+                    html += '<div class="text-xs text-gray-400 mb-2">Path: ' + escapeHtml(skill.path) + '</div>';
+                }
+                html += '<pre class="bg-gray-800 p-3 rounded overflow-auto max-h-64 text-xs text-gray-300 whitespace-pre-wrap">' + escapeHtml(skill.content || 'No content') + '</pre>';
+                html += '</div></details>';
+            });
+        } else {
+            html += '<div class="text-gray-500 text-center py-8">No skills loaded</div>';
+        }
+    } else if (data.servers !== undefined) {
+        // MCP servers
+        html += '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">';
+        const servers = Object.values(data.servers);
+        if (servers.length > 0) {
+            servers.forEach(server => {
+                html += '<div class="bg-gray-900 rounded-lg p-4 border border-gray-700">';
+                html += '<div class="font-medium text-emerald-400 mb-2">' + escapeHtml(server.name) + '</div>';
+                html += '<div class="text-sm text-gray-400">' + server.tool_count + ' tools</div>';
+                html += '</div>';
+            });
+        } else {
+            html += '<div class="col-span-2 text-gray-500 text-center py-4">No MCP servers configured</div>';
+        }
+        html += '</div>';
+        
+        // MCP Tools
+        if (data.tools && data.tools.length > 0) {
+            html += '<h4 class="font-medium text-gray-300 mb-3">MCP Tools (' + data.tools.length + ')</h4>';
+            html += '<div class="space-y-2 max-h-96 overflow-y-auto">';
+            data.tools.forEach(tool => {
+                const fn = tool.function || {};
+                html += '<div class="bg-gray-900 rounded p-3 border border-gray-700">';
+                html += '<div class="font-mono text-sm text-yellow-400">' + escapeHtml(fn.name || 'unknown') + '</div>';
+                if (fn.description) {
+                    html += '<div class="text-xs text-gray-400 mt-1">' + escapeHtml(fn.description.substring(0, 200)) + '</div>';
+                }
+                html += '</div>';
+            });
+            html += '</div>';
+        }
+    } else if (data.tools !== undefined) {
+        // Regular tools
+        if (data.tools && data.tools.length > 0) {
+            html += '<div class="text-sm text-gray-400 mb-4">' + data.tools.length + ' tools registered</div>';
+            html += '<div class="space-y-2 max-h-[60vh] overflow-y-auto">';
+            data.tools.forEach(tool => {
+                const fn = tool.function || {};
+                html += '<details class="bg-gray-900 rounded border border-gray-700">';
+                html += '<summary class="px-4 py-3 cursor-pointer hover:bg-gray-800">';
+                html += '<span class="font-mono text-sm text-yellow-400">' + escapeHtml(fn.name || 'unknown') + '</span>';
+                html += '</summary>';
+                html += '<div class="px-4 py-3 border-t border-gray-700">';
+                if (fn.description) {
+                    html += '<div class="text-sm text-gray-300 mb-3">' + escapeHtml(fn.description) + '</div>';
+                }
+                if (fn.parameters) {
+                    html += '<pre class="bg-gray-800 p-3 rounded overflow-auto max-h-48 text-xs">' + escapeHtml(JSON.stringify(fn.parameters, null, 2)) + '</pre>';
+                }
+                html += '</div></details>';
+            });
+            html += '</div>';
+        } else {
+            html += '<div class="text-gray-500 text-center py-8">No tools registered</div>';
+        }
+    } else {
+        // Generic JSON display
+        html += '<pre class="bg-gray-900 p-4 rounded overflow-auto max-h-[60vh] text-sm">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

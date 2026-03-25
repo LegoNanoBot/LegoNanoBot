@@ -1,0 +1,66 @@
+<!-- Event Row Partial - for real-time event stream -->
+{% set event_type = event.event_type if event.event_type is defined else (event.get('event_type', 'unknown') if event is mapping else 'unknown') %}
+{% set event_data = event.data if event.data is defined else (event.get('data', {}) if event is mapping else {}) %}
+{% set event_timestamp = event.timestamp if event.timestamp is defined else (event.get('timestamp', 0) if event is mapping else 0) %}
+{% set event_run_id = event.run_id if event.run_id is defined else (event.get('run_id', '') if event is mapping else '') %}
+
+<div class="flex items-center gap-3 py-2 px-3 rounded hover:bg-gray-700/50 transition-colors text-sm">
+    <!-- Event type badge -->
+    <span class="flex-shrink-0 px-2 py-0.5 rounded text-xs font-medium
+        {% if event_type in ['agent_start', 'agent_end'] %}bg-emerald-900 text-emerald-300
+        {% elif event_type in ['llm_request', 'llm_response'] %}bg-blue-900 text-blue-300
+        {% elif event_type in ['tool_call_start', 'tool_call_end'] %}bg-yellow-900 text-yellow-300
+        {% elif event_type == 'error' %}bg-red-900 text-red-300
+        {% elif event_type in ['subagent_spawn', 'subagent_done'] %}bg-purple-900 text-purple-300
+        {% elif event_type in ['message_in', 'message_out'] %}bg-indigo-900 text-indigo-300
+        {% elif event_type == 'memory_consolidate' %}bg-pink-900 text-pink-300
+        {% else %}bg-gray-700 text-gray-300{% endif %}">
+        {{ event_type }}
+    </span>
+    
+    <!-- Event summary -->
+    <span class="flex-1 text-gray-300 truncate">
+        {% if event_type == 'agent_start' %}
+        Agent started{% if event_data.get('channel') %} ({{ event_data.channel }}){% endif %}
+        {% elif event_type == 'agent_end' %}
+        Agent completed
+        {% elif event_type == 'llm_request' %}
+        LLM request{% if event_data.get('model') %} to {{ event_data.model }}{% endif %}
+        {% elif event_type == 'llm_response' %}
+        LLM response ({{ event_data.get('total_tokens', 0) }} tokens)
+        {% elif event_type == 'tool_call_start' %}
+        Tool: {{ event_data.get('tool_name', 'unknown') }}
+        {% elif event_type == 'tool_call_end' %}
+        Tool completed: {{ event_data.get('tool_name', 'unknown') }}{% if event_data.get('error') %} (error){% endif %}
+        {% elif event_type == 'error' %}
+        {{ event_data.get('message', 'Unknown error')[:50] }}{% if (event_data.get('message', '')|length) > 50 %}...{% endif %}
+        {% elif event_type == 'message_in' %}
+        Incoming message{% if event_data.get('channel') %} from {{ event_data.channel }}{% endif %}
+        {% elif event_type == 'message_out' %}
+        Outgoing message{% if event_data.get('channel') %} to {{ event_data.channel }}{% endif %}
+        {% elif event_type == 'subagent_spawn' %}
+        Subagent spawned{% if event_data.get('name') %}: {{ event_data.name }}{% endif %}
+        {% elif event_type == 'subagent_done' %}
+        Subagent completed{% if event_data.get('name') %}: {{ event_data.name }}{% endif %}
+        {% elif event_type == 'memory_consolidate' %}
+        Memory consolidated
+        {% else %}
+        &nbsp;
+        {% endif %}
+    </span>
+    
+    <!-- Run ID link -->
+    {% if event_run_id %}
+    <a href="/agents/{{ event_run_id }}" class="flex-shrink-0 text-xs text-gray-500 hover:text-emerald-400 font-mono">
+        {{ event_run_id[:8] }}...
+    </a>
+    {% endif %}
+    
+    <!-- Timestamp -->
+    <span class="flex-shrink-0 text-xs text-gray-500">
+        {% if event_timestamp %}
+        <script>document.write(new Date({{ event_timestamp }} * 1000).toLocaleTimeString())</script>
+        <noscript>{{ event_timestamp|int }}</noscript>
+        {% endif %}
+    </span>
+</div>
