@@ -14,6 +14,26 @@ class Base(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class TaskReceiptConfig(Base):
+    """Global task receipt behavior."""
+
+    enabled: bool = True
+    message: str = "我收到了请求了, 当前在执行请求有哪些"
+    skip_commands: bool = True
+    skip_empty: bool = True
+    skip_system: bool = True
+
+
+class TaskReceiptOverride(Base):
+    """Per-channel task receipt overrides."""
+
+    enabled: bool | None = None
+    message: str | None = None
+    skip_commands: bool | None = None
+    skip_empty: bool | None = None
+    skip_system: bool | None = None
+
+
 class WhatsAppConfig(Base):
     """WhatsApp channel configuration."""
 
@@ -21,6 +41,7 @@ class WhatsAppConfig(Base):
     bridge_url: str = "ws://localhost:3001"
     bridge_token: str = ""  # Shared token for bridge auth (optional, recommended)
     allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class TelegramConfig(Base):
@@ -34,6 +55,7 @@ class TelegramConfig(Base):
     )
     reply_to_message: bool = False  # If true, bot replies quote the original message
     group_policy: Literal["open", "mention"] = "mention"  # "mention" responds when @mentioned or replied to, "open" responds to all
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class FeishuConfig(Base):
@@ -49,6 +71,7 @@ class FeishuConfig(Base):
         "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
     )
     group_policy: Literal["open", "mention"] = "mention"  # "mention" responds when @mentioned, "open" responds to all
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class DingTalkConfig(Base):
@@ -58,6 +81,7 @@ class DingTalkConfig(Base):
     client_id: str = ""  # AppKey
     client_secret: str = ""  # AppSecret
     allow_from: list[str] = Field(default_factory=list)  # Allowed staff_ids
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class DiscordConfig(Base):
@@ -69,6 +93,7 @@ class DiscordConfig(Base):
     gateway_url: str = "wss://gateway.discord.gg/?v=10&encoding=json"
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
     group_policy: Literal["mention", "open"] = "mention"
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class MatrixConfig(Base):
@@ -90,6 +115,7 @@ class MatrixConfig(Base):
     group_policy: Literal["open", "mention", "allowlist"] = "open"
     group_allow_from: list[str] = Field(default_factory=list)
     allow_room_mentions: bool = False
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class EmailConfig(Base):
@@ -124,6 +150,9 @@ class EmailConfig(Base):
     max_body_chars: int = 12000
     subject_prefix: str = "Re: "
     allow_from: list[str] = Field(default_factory=list)  # Allowed sender email addresses
+    task_receipt: TaskReceiptOverride | None = Field(
+        default_factory=lambda: TaskReceiptOverride(enabled=False)
+    )
 
 
 class MochatMentionConfig(Base):
@@ -163,6 +192,7 @@ class MochatConfig(Base):
     groups: dict[str, MochatGroupRule] = Field(default_factory=dict)
     reply_delay_mode: str = "non-mention"  # off | non-mention
     reply_delay_ms: int = 120000
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class SlackDMConfig(Base):
@@ -188,6 +218,7 @@ class SlackConfig(Base):
     group_policy: str = "mention"  # "mention", "open", "allowlist"
     group_allow_from: list[str] = Field(default_factory=list)  # Allowed channel IDs if allowlist
     dm: SlackDMConfig = Field(default_factory=SlackDMConfig)
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class QQConfig(Base):
@@ -199,6 +230,7 @@ class QQConfig(Base):
     allow_from: list[str] = Field(
         default_factory=list
     )  # Allowed user openids (empty = public access)
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class WecomConfig(Base):
@@ -209,12 +241,14 @@ class WecomConfig(Base):
     secret: str = ""  # Bot Secret from WeCom AI Bot platform
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs
     welcome_message: str = ""  # Welcome message for enter_chat event
+    task_receipt: TaskReceiptOverride | None = None
 
 
 class ChannelPluginConfig(Base):
     """Generic plugin channel configuration."""
 
     enabled: bool = False
+    task_receipt: TaskReceiptOverride | None = None
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
 
 
@@ -223,6 +257,7 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True  # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
+    task_receipt: TaskReceiptConfig = Field(default_factory=TaskReceiptConfig)
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
@@ -255,9 +290,12 @@ class ChannelsConfig(Base):
         if not isinstance(data, dict):
             return data
         known = set(cls.model_fields.keys())
+        known_aliases = {
+            field.alias for field in cls.model_fields.values() if isinstance(field.alias, str)
+        }
         plugins = dict(data.get("plugins", {}) or {})
         for key in list(data.keys()):
-            if key not in known and isinstance(data[key], dict):
+            if key not in known and key not in known_aliases and isinstance(data[key], dict):
                 plugins.setdefault(key, data.pop(key))
         if plugins:
             data["plugins"] = plugins

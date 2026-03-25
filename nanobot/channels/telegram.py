@@ -300,8 +300,10 @@ class TelegramChannel(BaseChannel):
             logger.warning("Telegram bot not running")
             return
 
+        is_progress = bool(msg.metadata.get("_progress", False))
+        is_receipt = bool(msg.metadata.get("_receipt", False))
         # Only stop typing indicator for final responses
-        if not msg.metadata.get("_progress", False):
+        if not is_progress and not is_receipt:
             self._stop_typing(msg.chat_id)
 
         try:
@@ -354,8 +356,6 @@ class TelegramChannel(BaseChannel):
 
         # Send text content
         if msg.content and msg.content != "[empty message]":
-            is_progress = msg.metadata.get("_progress", False)
-
             for chunk in split_message(msg.content, TELEGRAM_MAX_MESSAGE_LEN):
                 # Final response: simulate streaming via draft, then persist
                 if not is_progress:

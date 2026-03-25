@@ -72,3 +72,15 @@ class TestFlatChannelConfig:
         """Empty config should produce empty plugins."""
         cfg = ChannelsConfig()
         assert cfg.plugins == {}
+
+    def test_task_receipt_global_config_accepts_camel_case(self):
+        """Global taskReceipt config should parse camelCase keys."""
+        cfg = ChannelsConfig(taskReceipt={"enabled": False, "skipCommands": False})
+        assert cfg.task_receipt.enabled is False
+        assert cfg.task_receipt.skip_commands is False
+
+    def test_email_task_receipt_disabled_by_default(self):
+        """Email channel should opt out of task receipts by default."""
+        cfg = ChannelsConfig()
+        assert cfg.email.task_receipt is not None
+        assert cfg.email.task_receipt.enabled is False

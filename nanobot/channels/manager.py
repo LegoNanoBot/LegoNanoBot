@@ -44,6 +44,7 @@ class ChannelManager:
             try:
                 cls = load_channel_class(modname)
                 channel = cls(section, self.bus)
+                channel.channels_config = self.config.channels
                 channel.transcription_api_key = groq_key
                 self.channels[modname] = channel
                 logger.info("{} channel enabled", cls.display_name)
@@ -85,6 +86,7 @@ class ChannelManager:
                 continue
 
             channel.transcription_api_key = groq_key
+            channel.channels_config = self.config.channels
             self.channels[channel_name] = channel
             logger.info("{} channel enabled", getattr(channel, "display_name", raw_name))
 

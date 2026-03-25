@@ -23,6 +23,7 @@ class BaseChannel(ABC):
     name: str = "base"
     display_name: str = "Base"
     transcription_api_key: str = ""
+    receipt_message: str = "我收到了请求了, 当前在执行请求有哪些"
 
     def __init__(self, config: Any, bus: MessageBus):
         """
@@ -35,6 +36,7 @@ class BaseChannel(ABC):
         self.config = config
         self.bus = bus
         self._running = False
+        self.channels_config: Any | None = None
 
     async def transcribe_audio(self, file_path: str | Path) -> str:
         """Transcribe an audio file via Groq Whisper. Returns empty string on failure."""
@@ -126,7 +128,89 @@ class BaseChannel(ABC):
             session_key_override=session_key,
         )
 
+        if self._should_send_task_receipt(content=content, metadata=metadata):
+            await self._send_task_receipt(chat_id=str(chat_id), metadata=metadata)
+
         await self.bus.publish_inbound(msg)
+
+    def _should_send_task_receipt(
+        self,
+        *,
+        content: str,
+        metadata: dict[str, Any] | None,
+    ) -> bool:
+        """Return True when an inbound message should receive a task receipt."""
+        options = self._task_receipt_options()
+        if not options["enabled"]:
+            return False
+        text = (content or "").strip()
+        if options["skip_empty"] and not text:
+            return False
+        if options["skip_commands"] and text.startswith("/"):
+            return False
+        if options["skip_system"] and (metadata or {}).get("_system_message"):
+            return False
+        return True
+
+    async def _send_task_receipt(
+        self,
+        *,
+        chat_id: str,
+        metadata: dict[str, Any] | None,
+    ) -> None:
+        """Best-effort immediate receipt to acknowledge task processing."""
+        try:
+            await self.send(
+                OutboundMessage(
+                    channel=self.name,
+                    chat_id=chat_id,
+                    content=self._task_receipt_text(),
+                    metadata=self._task_receipt_metadata(metadata),
+                )
+            )
+        except Exception as e:
+            logger.debug("{}: task receipt send failed: {}", self.name, e)
+
+    def _task_receipt_text(self) -> str:
+        """Return the channel receipt text. Override for channel-specific wording."""
+        options = self._task_receipt_options()
+        return options["message"] or self.receipt_message
+
+    def _task_receipt_metadata(self, metadata: dict[str, Any] | None) -> dict[str, Any]:
+        """Build metadata for receipt replies while preserving channel thread context."""
+        receipt_meta = dict(metadata or {})
+        receipt_meta["_receipt"] = True
+        return receipt_meta
+
+    def _task_receipt_options(self) -> dict[str, Any]:
+        """Resolve task receipt options from global defaults and channel overrides."""
+        global_cfg = self._config_value(self.channels_config, "task_receipt")
+        local_cfg = self._config_value(self.config, "task_receipt")
+        options = {
+            "enabled": self._nested_config_value(global_cfg, "enabled", True),
+            "message": self._nested_config_value(global_cfg, "message", self.receipt_message),
+            "skip_commands": self._nested_config_value(global_cfg, "skip_commands", True),
+            "skip_empty": self._nested_config_value(global_cfg, "skip_empty", True),
+            "skip_system": self._nested_config_value(global_cfg, "skip_system", True),
+        }
+        for key in options:
+            value = self._nested_config_value(local_cfg, key, None)
+            if value is not None:
+                options[key] = value
+        return options
+
+    @staticmethod
+    def _config_value(config: Any, key: str) -> Any:
+        if config is None:
+            return None
+        if isinstance(config, dict):
+            return config.get(key)
+        return getattr(config, key, None)
+
+    @classmethod
+    def _nested_config_value(cls, config: Any, key: str, default: Any) -> Any:
+        value = cls._config_value(config, key)
+        return default if value is None else value
 
     @property
     def is_running(self) -> bool:

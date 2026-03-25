@@ -366,6 +366,7 @@ class MatrixChannel(BaseChannel):
         candidates = self._collect_outbound_media_candidates(msg.media)
         relates_to = self._build_thread_relates_to(msg.metadata)
         is_progress = bool((msg.metadata or {}).get("_progress"))
+        is_receipt = bool((msg.metadata or {}).get("_receipt"))
         try:
             failures: list[str] = []
             if candidates:
@@ -386,7 +387,7 @@ class MatrixChannel(BaseChannel):
                     content["m.relates_to"] = relates_to
                 await self._send_room_content(msg.chat_id, content)
         finally:
-            if not is_progress:
+            if not is_progress and not is_receipt:
                 await self._stop_typing_keepalive(msg.chat_id, clear_typing=True)
 
     def _register_event_callbacks(self) -> None:

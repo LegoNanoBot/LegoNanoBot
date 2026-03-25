@@ -1,0 +1,9 @@
+name: legonanobot
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - nodejs>=20
+  - pip:
+      - -e .[dev]
