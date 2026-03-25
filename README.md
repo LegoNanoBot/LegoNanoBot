@@ -15,6 +15,7 @@ It keeps nanobot's lightweight core while making `channel`, `memory`, and `provi
 - **Third-party friendly**: build and ship integrations as standalone Python packages.
 - **Hot-update oriented**: plugin loading/reload workflow reduces core changes and speeds up iteration.
 - **Backward-compatible mindset**: preserve nanobot's small, understandable core while extending capabilities.
+- **Built-in observability**: X-Ray monitoring provides real-time inspection of agents, messages, and token usage.
 
 ## 🏗️ Architecture
 
@@ -54,6 +55,7 @@ LegoNanobot decouples extension lifecycles from core logic, so custom channel/me
 - [Chat Apps](#-chat-apps)
 - [Agent Social Network](#-agent-social-network)
 - [Configuration](#️-configuration)
+- [X-Ray Monitoring](#-x-ray-monitoring)
 - [Multiple Instances](#-multiple-instances)
 - [CLI Reference](#-cli-reference)
 - [Docker](#-docker)
@@ -1341,6 +1343,60 @@ MCP tools are automatically discovered and registered on startup. The LLM can us
 | `channels.*.allowFrom` | `[]` (deny all) | Whitelist of user IDs. Empty denies all; use `["*"]` to allow everyone. |
 
 
+### 🔬 X-Ray Monitoring
+
+X-Ray provides a built-in real-time monitoring web service that lets you inspect your bot's internals — like an X-ray into the running system.
+
+<details><summary>Enable X-Ray</summary>
+
+1. Install X-Ray dependencies:
+
+```bash
+pip install -e ".[xray]"
+```
+
+2. Add to your config:
+
+```yaml
+xray:
+  enabled: true
+  host: "127.0.0.1"
+  port: 9100
+```
+
+3. Start the bot and visit **http://127.0.0.1:9100**
+
+</details>
+
+<details><summary>Features</summary>
+
+| Feature | Description |
+|---------|-------------|
+| **Dashboard** | Live view of active agents, queued messages, token stats |
+| **Agent Timeline** | Step-by-step visualization of LLM calls and tool executions |
+| **Conversation Viewer** | Full LLM message chain with chat-bubble UI |
+| **Config Inspector** | Browse Memory, Soul, Skills, MCP, and Tools at a glance |
+| **Token Analytics** | Per-run and aggregate prompt/completion token tracking |
+| **REST API** | 13 endpoints + SSE stream at `/api/v1/` (Swagger docs at `/api/docs`) |
+
+</details>
+
+<details><summary>Configuration Options</summary>
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `xray.enabled` | bool | `false` | Enable the X-Ray web service |
+| `xray.host` | string | `"127.0.0.1"` | Bind address |
+| `xray.port` | int | `9100` | HTTP port |
+| `xray.dbPath` | string | `".nanobot/xray.db"` | SQLite database path |
+| `xray.retentionHours` | int | `72` | Auto-cleanup events older than N hours |
+| `xray.maxMessageSize` | int | `32768` | Max stored message size in bytes |
+
+> **Security Note:** X-Ray exposes internal state and conversation data. Keep `host` as `127.0.0.1` unless you add authentication.
+
+</details>
+
+
 ## 🧩 Multiple Instances
 
 Run multiple nanobot instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint, and optionally use `--workspace` to override the workspace for a specific run.
@@ -1593,6 +1649,7 @@ nanobot/
 ├── providers/      # 🤖 LLM providers (OpenRouter, etc.)
 ├── session/        # 💬 Conversation sessions
 ├── config/         # ⚙️ Configuration
+├── xray/           # 🔬 X-Ray monitoring web service
 └── cli/            # 🖥️ Commands
 ```
 
