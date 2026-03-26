@@ -16,6 +16,7 @@ It keeps nanobot's lightweight core while making `channel`, `memory`, and `provi
 - **Hot-update oriented**: plugin loading/reload workflow reduces core changes and speeds up iteration.
 - **Backward-compatible mindset**: preserve nanobot's small, understandable core while extending capabilities.
 - **Built-in observability**: X-Ray monitoring provides real-time inspection of agents, messages, and token usage.
+- **Distributed collaboration**: Supervisor Gateway enables multi-bot task planning, dispatching, and fault recovery across worker processes.
 
 ## 🏗️ Architecture
 
@@ -44,6 +45,29 @@ flowchart LR
 
 LegoNanobot decouples extension lifecycles from core logic, so custom channel/memory/provider capabilities can be delivered and iterated independently.
 
+### Supervisor Gateway (Multi-Bot Collaboration)
+
+```mermaid
+flowchart TB
+    SV[Supervisor Process<br/>Registry + API + Watchdog] -->|HTTP /api/v1| W1[Worker 1<br/>Poll → Execute → Report]
+    SV -->|HTTP /api/v1| W2[Worker 2<br/>Poll → Execute → Report]
+    SV -->|HTTP /api/v1| W3[Worker N<br/>Poll → Execute → Report]
+    SV --- PL[Planner<br/>LLM-driven task decomposition]
+    SV --- WD[Watchdog<br/>Heartbeat monitoring & eviction]
+    W1 --> LLM1[LLM + Tools]
+    W2 --> LLM2[LLM + Tools]
+    W3 --> LLM3[LLM + Tools]
+```
+
+The Supervisor Gateway enables distributed multi-bot collaboration:
+
+- **Supervisor** manages worker registration, task queue (FIFO), multi-step plans with dependency tracking, and health monitoring.
+- **Workers** poll for tasks, execute them using a local LLM + tool loop, and report progress/results back.
+- **Planner** uses LLM to decompose complex requests into multi-step execution plans.
+- **Watchdog** detects heartbeat timeouts, evicts dead workers, and re-queues their tasks.
+
+See [Supervisor Gateway](#-supervisor-gateway) for usage details.
+
 ## Table of Contents
 
 - [Key Features](#key-features-of-legonanobot)
@@ -56,6 +80,7 @@ LegoNanobot decouples extension lifecycles from core logic, so custom channel/me
 - [Agent Social Network](#-agent-social-network)
 - [Configuration](#️-configuration)
 - [X-Ray Monitoring](#-x-ray-monitoring)
+- [Supervisor Gateway](#-supervisor-gateway)
 - [Multiple Instances](#-multiple-instances)
 - [CLI Reference](#-cli-reference)
 - [Docker](#-docker)
@@ -1397,7 +1422,72 @@ xray:
 </details>
 
 
-## 🧩 Multiple Instances
+## � Supervisor Gateway
+
+The Supervisor Gateway enables distributed multi-bot collaboration. A central supervisor process coordinates multiple worker processes, each running its own LLM + tool loop.
+
+### Start the Supervisor
+
+```bash
+nanobot supervisor --port 9200
+```
+
+The supervisor exposes a REST API at `http://127.0.0.1:9200/api/v1/supervisor/` with endpoints for worker management, task queue, and plan orchestration.
+
+### Start Workers
+
+```bash
+# Worker 1
+nanobot worker --supervisor-url http://127.0.0.1:9200 --name worker-1
+
+# Worker 2 (in another terminal)
+nanobot worker --supervisor-url http://127.0.0.1:9200 --name worker-2
+```
+
+Workers automatically register, poll for pending tasks, execute them, and report results.
+
+### Core Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Worker** | A process that registers with the supervisor, sends heartbeats, and executes tasks |
+| **Task** | A unit of work with an instruction, assigned to a worker |
+| **Plan** | A multi-step execution plan with dependency tracking between steps |
+| **Watchdog** | Background service that evicts workers whose heartbeat times out |
+
+### Plan Lifecycle
+
+1. A **Plan** is created with multiple steps and dependencies
+2. The plan is **approved** (manually or automatically)
+3. Steps with no unmet dependencies become **pending tasks**
+4. Workers **claim** and execute tasks
+5. Completed steps **unlock** downstream steps automatically
+6. Plan completes when all steps finish
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/supervisor/workers/register` | Register a worker |
+| POST | `/supervisor/workers/{id}/heartbeat` | Worker heartbeat |
+| DELETE | `/supervisor/workers/{id}` | Unregister a worker |
+| GET | `/supervisor/workers` | List all workers |
+| POST | `/supervisor/tasks` | Create a task |
+| POST | `/supervisor/tasks/claim` | Claim next pending task |
+| POST | `/supervisor/tasks/{id}/progress` | Report task progress |
+| POST | `/supervisor/tasks/{id}/result` | Report task result |
+| POST | `/supervisor/plans` | Create a plan |
+| POST | `/supervisor/plans/{id}/approve` | Approve a plan |
+| GET | `/supervisor/plans` | List all plans |
+
+### Fault Recovery
+
+- Workers send periodic heartbeats (default: every 30s)
+- The **Watchdog** scans for workers whose heartbeat is overdue (default: 120s timeout)
+- Dead workers are evicted and their in-flight tasks are re-queued as **pending**
+- Another worker picks up the re-queued task automatically
+
+## �🧩 Multiple Instances
 
 Run multiple nanobot instances simultaneously with separate configs and runtime data. Use `--config` as the main entrypoint, and optionally use `--workspace` to override the workspace for a specific run.
 
@@ -1515,6 +1605,10 @@ nanobot gateway --config ~/.nanobot-telegram/config.json --workspace /tmp/nanobo
 | `nanobot provider reload` | Reload provider plugins in current process |
 | `nanobot channels login` | Link WhatsApp (scan QR) |
 | `nanobot channels status` | Show channel status |
+| `nanobot supervisor` | Start the supervisor gateway |
+| `nanobot supervisor --port 9200` | Supervisor on custom port |
+| `nanobot worker --supervisor-url URL` | Start a worker process |
+| `nanobot worker --name my-worker` | Worker with custom name |
 
 Interactive mode exits: `exit`, `quit`, `/exit`, `/quit`, `:q`, or `Ctrl+D`.
 
@@ -1649,6 +1743,8 @@ nanobot/
 ├── providers/      # 🤖 LLM providers (OpenRouter, etc.)
 ├── session/        # 💬 Conversation sessions
 ├── config/         # ⚙️ Configuration
+├── supervisor/     # 🎯 Supervisor Gateway (registry, API, planner, watchdog)
+├── worker/         # 👷 Worker client and runner
 ├── xray/           # 🔬 X-Ray monitoring web service
 └── cli/            # 🖥️ Commands
 ```
@@ -1661,6 +1757,7 @@ PRs welcome! The codebase is intentionally small and readable. 🤗
 
 - [ ] **Multi-modal** — See and hear (images, voice, video)
 - [ ] **Long-term memory** — Never forget important context
+- [x] **Distributed collaboration** — Supervisor Gateway for multi-bot task orchestration
 - [ ] **Better reasoning** — Multi-step planning and reflection
 - [ ] **More integrations** — Calendar and more
 - [ ] **Self-improvement** — Learn from feedback and mistakes
