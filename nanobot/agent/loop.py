@@ -250,8 +250,12 @@ class AgentLoop:
                             "tool_calls": tool_call_names,
                             "usage": usage_dict,
                             "finish_reason": response.finish_reason,
-                            "reasoning_content": response.reasoning_content,
-                            "thinking_blocks": response.thinking_blocks,
+                            **({
+                                "reasoning_content": response.reasoning_content[:10000]
+                            } if response.reasoning_content else {}),
+                            **({
+                                "thinking_blocks": response.thinking_blocks
+                            } if response.thinking_blocks else {}),
                         }
                     )
                 except Exception:

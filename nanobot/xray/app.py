@@ -80,7 +80,8 @@ def create_xray_app(
 
     def _pretty_json(value: Any) -> Markup:
         """Format value as indented JSON with proper Unicode."""
-        return Markup(json.dumps(value, indent=2, ensure_ascii=False, default=str))
+        raw = json.dumps(value, indent=2, ensure_ascii=False, default=str)
+        return Markup(raw.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
     templates.env.filters["pretty_json"] = _pretty_json
 
