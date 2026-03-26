@@ -115,7 +115,7 @@
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                     </svg>
-                    Response: {{ "{:,}".format(event_data.get('prompt_tokens', 0)|int) }} prompt + {{ "{:,}".format(event_data.get('completion_tokens', 0)|int) }} completion tokens
+                    Response: {{ "{:,}".format(event_data.get('usage', {}).get('prompt_tokens', 0)|int) }} prompt + {{ "{:,}".format(event_data.get('usage', {}).get('completion_tokens', 0)|int) }} completion tokens
                 </div>
             </div>
             
@@ -133,7 +133,7 @@
                     {% if event_data.get('arguments') %}
                     <details class="mt-2">
                         <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-300">View Arguments</summary>
-                        <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">{{ event_data.arguments | tojson(indent=2) }}</pre>
+                        <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">{{ event_data.arguments | pretty_json }}</pre>
                     </details>
                     {% endif %}
                 </div>
@@ -157,7 +157,7 @@
                     {% elif event_data.get('result') %}
                     <details class="mt-2">
                         <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-300">View Result</summary>
-                        <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">{{ event_data.result[:1000] if event_data.result is string else (event_data.result | tojson(indent=2))[:1000] }}{% if (event_data.result|string|length) > 1000 %}...{% endif %}</pre>
+                        <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">{{ event_data.result[:1000] if event_data.result is string else (event_data.result | pretty_json)[:1000] }}{% if (event_data.result|string|length) > 1000 %}...{% endif %}</pre>
                     </details>
                     {% endif %}
                 </div>

@@ -117,7 +117,7 @@
                                 {% elif event_type == 'llm_request' %}
                                 {{ event_data.get('model', 'LLM') }} request
                                 {% elif event_type == 'llm_response' %}
-                                {{ event_data.get('prompt_tokens', 0) }} + {{ event_data.get('completion_tokens', 0) }} tokens
+                                {{ event_data.get('usage', {}).get('prompt_tokens', 0) }} + {{ event_data.get('usage', {}).get('completion_tokens', 0) }} tokens
                                 {% elif event_type == 'error' %}
                                 {{ event_data.get('message', 'Unknown error')[:50] }}{% if (event_data.get('message', '')|length) > 50 %}...{% endif %}
                                 {% else %}
@@ -152,18 +152,19 @@
                         </div>
                         
                         {% elif event_type == 'llm_response' %}
+                        {% set usage = event_data.get('usage', {}) %}
                         <div class="grid grid-cols-3 gap-4 text-sm">
                             <div>
                                 <span class="text-gray-400">Prompt:</span>
-                                <span class="text-blue-400">{{ "{:,}".format(event_data.get('prompt_tokens', 0)|int) }}</span>
+                                <span class="text-blue-400">{{ "{:,}".format(usage.get('prompt_tokens', 0)|int) }}</span>
                             </div>
                             <div>
                                 <span class="text-gray-400">Completion:</span>
-                                <span class="text-emerald-400">{{ "{:,}".format(event_data.get('completion_tokens', 0)|int) }}</span>
+                                <span class="text-emerald-400">{{ "{:,}".format(usage.get('completion_tokens', 0)|int) }}</span>
                             </div>
                             <div>
                                 <span class="text-gray-400">Total:</span>
-                                <span class="text-yellow-400">{{ "{:,}".format(event_data.get('total_tokens', 0)|int) }}</span>
+                                <span class="text-yellow-400">{{ "{:,}".format(usage.get('total_tokens', 0)|int) }}</span>
                             </div>
                         </div>
                         {% if event_data.get('content') %}
@@ -179,7 +180,7 @@
                             {% if event_data.get('arguments') %}
                             <div>
                                 <div class="text-xs text-gray-400 mb-1">Arguments:</div>
-                                <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.arguments | tojson(indent=2) }}</pre>
+                                <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.arguments | pretty_json }}</pre>
                             </div>
                             {% endif %}
                         </div>
@@ -190,7 +191,7 @@
                             {% if event_data.get('result') %}
                             <div>
                                 <div class="text-xs text-gray-400 mb-1">Result:</div>
-                                <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.result[:2000] if event_data.result is string else (event_data.result | tojson(indent=2))[:2000] }}{% if (event_data.result|string|length) > 2000 %}...{% endif %}</pre>
+                                <pre class="text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-48 overflow-y-auto">{{ event_data.result[:2000] if event_data.result is string else (event_data.result | pretty_json)[:2000] }}{% if (event_data.result|string|length) > 2000 %}...{% endif %}</pre>
                             </div>
                             {% endif %}
                             {% if event_data.get('error') %}
@@ -208,7 +209,7 @@
                         </div>
                         
                         {% else %}
-                        <pre class="text-xs overflow-x-auto">{{ event_data | tojson(indent=2) }}</pre>
+                        <pre class="text-xs overflow-x-auto">{{ event_data | pretty_json }}</pre>
                         {% endif %}
                     </div>
                 </details>

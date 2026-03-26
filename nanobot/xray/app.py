@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from nanobot.xray.api import agents, config, events, tokens
 from nanobot.xray.pages import views as pages_views
@@ -40,11 +43,20 @@ def create_xray_app(
     Returns:
         Configured FastAPI application.
     """
+    class _UnicodeJSONResponse(JSONResponse):
+        """JSONResponse that preserves non-ASCII characters."""
+
+        def render(self, content: Any) -> bytes:
+            return json.dumps(
+                content, ensure_ascii=False, default=str,
+            ).encode("utf-8")
+
     app = FastAPI(
         title="NanoBot X-Ray",
         description="X-Ray debugging and monitoring interface for NanoBot",
         docs_url="/api/docs",
         redoc_url="/api/redoc",
+        default_response_class=_UnicodeJSONResponse,
     )
 
     # Store shared references on app.state
@@ -62,6 +74,16 @@ def create_xray_app(
     templates_dir = Path(__file__).parent / "templates"
     templates_dir.mkdir(exist_ok=True)
     templates = Jinja2Templates(directory=str(templates_dir))
+
+    # Fix Unicode display: ensure Chinese/non-ASCII chars render properly
+    templates.env.policies["json.dumps_kwargs"] = {"ensure_ascii": False}
+
+    def _pretty_json(value: Any) -> Markup:
+        """Format value as indented JSON with proper Unicode."""
+        return Markup(json.dumps(value, indent=2, ensure_ascii=False, default=str))
+
+    templates.env.filters["pretty_json"] = _pretty_json
+
     app.state.templates = templates
 
     # Register API routers
