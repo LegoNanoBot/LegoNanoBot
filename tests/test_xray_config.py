@@ -11,7 +11,9 @@ def test_xray_config_defaults():
     assert cfg.port == 9100
     assert cfg.db_path == ".nanobot/xray.db"
     assert cfg.retention_hours == 72
+    assert cfg.retain_runs == 100
     assert cfg.max_message_size == 32768
+    assert cfg.capture_full_messages is False
 
 
 def test_xray_config_custom():
@@ -38,3 +40,15 @@ def test_xray_config_max_message_size_override():
     """XRayConfig max_message_size 可以自定义"""
     cfg = XRayConfig(max_message_size=65536)
     assert cfg.max_message_size == 65536
+
+
+def test_xray_config_retain_runs_override():
+    """XRayConfig retain_runs 可以自定义"""
+    cfg = XRayConfig(retain_runs=50)
+    assert cfg.retain_runs == 50
+
+
+def test_xray_config_capture_full_messages_override():
+    """XRayConfig capture_full_messages 可以自定义"""
+    cfg = XRayConfig(capture_full_messages=True)
+    assert cfg.capture_full_messages is True

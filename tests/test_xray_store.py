@@ -136,3 +136,24 @@ async def test_get_run_detail_not_found(store):
 async def test_save_events_empty_list(store):
     """批量保存空列表不报错"""
     await store.save_events([])  # 应该不抛出异常
+
+
+@pytest.mark.asyncio
+async def test_retain_recent_runs_only():
+    """按 run 维度滚动保留最近 N 组事件"""
+    s = SQLiteEventStore(":memory:", max_runs=2)
+    await s.init()
+    try:
+        await s.save_event(create_event("run1", EventType.AGENT_START))
+        await s.save_event(create_event("run2", EventType.AGENT_START))
+        await s.save_event(create_event("run3", EventType.AGENT_START))
+
+        run1_events = await s.query_events(run_id="run1")
+        run2_events = await s.query_events(run_id="run2")
+        run3_events = await s.query_events(run_id="run3")
+
+        assert len(run1_events) == 0
+        assert len(run2_events) >= 1
+        assert len(run3_events) >= 1
+    finally:
+        await s.close()

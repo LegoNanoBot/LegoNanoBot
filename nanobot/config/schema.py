@@ -485,7 +485,9 @@ class XRayConfig(Base):
     port: int = 9100
     db_path: str = ".nanobot/xray.db"
     retention_hours: int = 72
+    retain_runs: int = 100
     max_message_size: int = 32768
+    capture_full_messages: bool = False
 
 
 class Config(BaseSettings):

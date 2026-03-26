@@ -70,7 +70,14 @@
                         </div>
                         <details>
                             <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-300">View System Prompt</summary>
-                            <div class="mt-2 text-sm text-gray-300 whitespace-pre-wrap max-h-96 overflow-y-auto">{{ msg.get('content', '')[:5000] }}{% if (msg.get('content', '')|length) > 5000 %}...{% endif %}</div>
+                            {% set system_id = "msgsys_" ~ event.get('id', loop.index0) ~ "_" ~ loop.index0 %}
+                            <div class="long-text-wrap mt-2">
+                                <pre id="{{ system_id }}" class="long-text-box text-sm text-gray-300">{{ msg.get('content', '') }}</pre>
+                                <div class="long-text-actions">
+                                    <button type="button" class="long-text-btn" onclick="toggleLongText('{{ system_id }}', this)">展开</button>
+                                    <button type="button" class="long-text-btn" onclick="copyLongText('{{ system_id }}', this)">复制</button>
+                                </div>
+                            </div>
                         </details>
                     </div>
                 </div>
@@ -85,7 +92,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
                             </svg>
                         </div>
-                        <div class="text-sm text-gray-100 whitespace-pre-wrap">{{ msg.get('content', '')[:2000] }}{% if (msg.get('content', '')|length) > 2000 %}...{% endif %}</div>
+                        {% set user_id = "msgusr_" ~ event.get('id', loop.index0) ~ "_" ~ loop.index0 %}
+                        <div class="long-text-wrap">
+                            <pre id="{{ user_id }}" class="long-text-box text-sm text-gray-100">{{ msg.get('content', '') }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ user_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ user_id }}', this)">复制</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -99,7 +113,14 @@
                             </svg>
                             <span class="text-xs text-emerald-400 uppercase tracking-wider">Assistant</span>
                         </div>
-                        <div class="text-sm text-gray-100 whitespace-pre-wrap">{{ msg.get('content', '')[:2000] }}{% if (msg.get('content', '')|length) > 2000 %}...{% endif %}</div>
+                        {% set assistant_id = "msgasst_" ~ event.get('id', loop.index0) ~ "_" ~ loop.index0 %}
+                        <div class="long-text-wrap">
+                            <pre id="{{ assistant_id }}" class="long-text-box text-sm text-gray-100">{{ msg.get('content', '') }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ assistant_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ assistant_id }}', this)">复制</button>
+                            </div>
+                        </div>
                         {% if msg.get('tool_calls') %}
                         <div class="mt-3 pt-3 border-t border-gray-600">
                             <span class="text-xs text-yellow-400">Tool calls requested</span>
@@ -121,7 +142,14 @@
                             <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
                             <span class="text-xs text-orange-400 uppercase tracking-wider">LLM Thinking</span>
                         </summary>
-                        <pre class="mt-2 text-sm text-orange-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{{ event_data.reasoning_content[:5000] }}{% if (event_data.reasoning_content|length) > 5000 %}...{% endif %}</pre>
+                        {% set reason_id = "msgreason_" ~ event.get('id', loop.index0) %}
+                        <div class="long-text-wrap mt-2">
+                            <pre id="{{ reason_id }}" class="long-text-box text-sm text-orange-200">{{ event_data.reasoning_content }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ reason_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ reason_id }}', this)">复制</button>
+                            </div>
+                        </div>
                     </details>
                 </div>
             </div>
@@ -135,7 +163,14 @@
                             <span class="text-xs text-orange-400 uppercase tracking-wider">LLM Thinking ({{ event_data.thinking_blocks|length }} blocks)</span>
                         </summary>
                         {% for block in event_data.thinking_blocks %}
-                        <pre class="mt-2 text-sm text-orange-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{{ block.get('thinking', block.get('text', ''))[:5000] }}{% if (block.get('thinking', block.get('text', ''))|length) > 5000 %}...{% endif %}</pre>
+                        {% set block_id = "msgthinkblk_" ~ event.get('id', loop.index0) ~ "_" ~ loop.index0 %}
+                        <div class="long-text-wrap mt-2">
+                            <pre id="{{ block_id }}" class="long-text-box text-sm text-orange-200">{{ block.get('thinking', block.get('text', '')) }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ block_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ block_id }}', this)">复制</button>
+                            </div>
+                        </div>
                         {% endfor %}
                     </details>
                 </div>
@@ -149,7 +184,14 @@
                             <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
                             <span class="text-xs text-orange-400 uppercase tracking-wider">LLM Thinking (inline &lt;think&gt; blocks)</span>
                         </summary>
-                        <pre class="mt-2 text-sm text-orange-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{{ event_data.think_content[:5000] }}{% if (event_data.think_content|length) > 5000 %}...{% endif %}</pre>
+                        {% set think_id = "msgthink_" ~ event.get('id', loop.index0) %}
+                        <div class="long-text-wrap mt-2">
+                            <pre id="{{ think_id }}" class="long-text-box text-sm text-orange-200">{{ event_data.think_content }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ think_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ think_id }}', this)">复制</button>
+                            </div>
+                        </div>
                     </details>
                 </div>
             </div>
@@ -178,7 +220,14 @@
                     {% if event_data.get('arguments') %}
                     <details class="mt-2">
                         <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-300">View Arguments</summary>
-                        <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">{{ event_data.arguments | pretty_json }}</pre>
+                        {% set args_id = "msgargs_" ~ event.get('id', loop.index0) %}
+                        <div class="long-text-wrap mt-2">
+                            <pre id="{{ args_id }}" class="long-text-box text-xs bg-gray-800 p-2 rounded">{{ event_data.arguments | pretty_json }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ args_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ args_id }}', this)">复制</button>
+                            </div>
+                        </div>
                     </details>
                     {% endif %}
                 </div>
@@ -202,7 +251,14 @@
                     {% elif event_data.get('result') %}
                     <details class="mt-2">
                         <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-300">View Result</summary>
-                        <pre class="mt-2 text-xs bg-gray-800 p-2 rounded overflow-x-auto max-h-32 overflow-y-auto">{{ event_data.result[:1000] if event_data.result is string else (event_data.result | pretty_json)[:1000] }}{% if (event_data.result|string|length) > 1000 %}...{% endif %}</pre>
+                        {% set result_id = "msgresult_" ~ event.get('id', loop.index0) %}
+                        <div class="long-text-wrap mt-2">
+                            <pre id="{{ result_id }}" class="long-text-box text-xs bg-gray-800 p-2 rounded">{{ event_data.result if event_data.result is string else (event_data.result | pretty_json) }}</pre>
+                            <div class="long-text-actions">
+                                <button type="button" class="long-text-btn" onclick="toggleLongText('{{ result_id }}', this)">展开</button>
+                                <button type="button" class="long-text-btn" onclick="copyLongText('{{ result_id }}', this)">复制</button>
+                            </div>
+                        </div>
                     </details>
                     {% endif %}
                 </div>

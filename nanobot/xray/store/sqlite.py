@@ -33,13 +33,14 @@ _CREATE_INDEXES_SQL = [
 class SQLiteEventStore(BaseEventStore):
     """SQLite-backed implementation of X-Ray event store."""
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, max_runs: int = 100) -> None:
         """Initialize the SQLite event store.
 
         Args:
             db_path: Path to the SQLite database file.
         """
         self._db_path = db_path
+        self._max_runs = max_runs
         self._db: aiosqlite.Connection | None = None
 
     async def init(self) -> None:
@@ -79,6 +80,7 @@ class SQLiteEventStore(BaseEventStore):
             "INSERT INTO events (id, timestamp, run_id, event_type, data) VALUES (?, ?, ?, ?, ?)",
             (event.id, event.timestamp, event.run_id, event.event_type, data_json),
         )
+        await self._cleanup_excess_runs()
         await self._db.commit()
         logger.trace("Saved event {} (type={})", event.id, event.event_type)
 
@@ -104,8 +106,36 @@ class SQLiteEventStore(BaseEventStore):
             "INSERT INTO events (id, timestamp, run_id, event_type, data) VALUES (?, ?, ?, ?, ?)",
             rows,
         )
+        await self._cleanup_excess_runs()
         await self._db.commit()
         logger.debug("Batch saved {} events", len(events))
+
+    async def _cleanup_excess_runs(self) -> None:
+        """Keep only recent runs by newest event timestamp."""
+        if self._db is None or self._max_runs <= 0:
+            return
+
+        async with self._db.execute(
+            """
+            SELECT run_id
+            FROM events
+            GROUP BY run_id
+            ORDER BY MAX(timestamp) DESC
+            LIMIT -1 OFFSET ?
+            """,
+            (self._max_runs,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        if not rows:
+            return
+
+        stale_run_ids = [row["run_id"] for row in rows]
+        placeholders = ",".join("?" for _ in stale_run_ids)
+        await self._db.execute(
+            f"DELETE FROM events WHERE run_id IN ({placeholders})",
+            stale_run_ids,
+        )
 
     async def query_events(
         self,

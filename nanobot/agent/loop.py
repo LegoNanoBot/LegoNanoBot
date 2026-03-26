@@ -117,6 +117,7 @@ class AgentLoop:
             store=shared_memory_store,
         )
         self.observer: XRayObserver | None = None
+        self.xray_capture_full_messages: bool = False
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -237,9 +238,7 @@ class AgentLoop:
                         "message_count": len(messages),
                         "last_message_preview": last_msg_summary,
                     }
-                    # On first iteration, include system prompt and user message
-                    # so xray can show SOUL.md / bootstrap file loading.
-                    if iteration == 1 and messages:
+                    if self.xray_capture_full_messages and logger.level("DEBUG").no >= logger._core.min_level and messages:
                         xray_msgs = []
                         for m in messages:
                             role = m.get("role", "")
@@ -252,6 +251,10 @@ class AgentLoop:
                                 xray_msgs.append({"role": "system", "content": mc[:20000]})
                             elif role == "user":
                                 xray_msgs.append({"role": "user", "content": mc[:5000]})
+                            elif role == "assistant":
+                                xray_msgs.append({"role": "assistant", "content": mc[:20000]})
+                            elif role == "tool":
+                                xray_msgs.append({"role": "tool", "content": mc[:20000]})
                         if xray_msgs:
                             req_data["messages"] = xray_msgs
                     await self.observer.emit(

@@ -567,7 +567,7 @@ def gateway(
 
                 # 初始化存储
                 db_path = str(config.workspace_path / config.xray.db_path)
-                xray_store = SQLiteEventStore(db_path)
+                xray_store = SQLiteEventStore(db_path, max_runs=config.xray.retain_runs)
                 asyncio.get_event_loop().run_until_complete(xray_store.init())
 
                 # 初始化 SSE 和 Collector
@@ -579,6 +579,7 @@ def gateway(
                 # 创建 Observer 并注入
                 xray_observer = XRayObserver(collector)
                 agent.observer = xray_observer
+                agent.xray_capture_full_messages = config.xray.capture_full_messages
                 if hasattr(agent, 'tools') and agent.tools:
                     agent.tools.observer = xray_observer
                 # 也注入到 subagent manager（如果存在）
@@ -1388,7 +1389,7 @@ def supervisor(
                 from nanobot.xray.store.sqlite import SQLiteEventStore
 
                 db_path = str(cfg.workspace_path / cfg.xray.db_path)
-                xray_store = SQLiteEventStore(db_path)
+                xray_store = SQLiteEventStore(db_path, max_runs=cfg.xray.retain_runs)
                 asyncio.get_event_loop().run_until_complete(xray_store.init())
 
                 sse_hub = SSEHub()
