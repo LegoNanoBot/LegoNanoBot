@@ -15,9 +15,13 @@ if TYPE_CHECKING:
 class SSEHub:
     """Manages SSE subscriptions and broadcasts events to connected clients."""
 
+    # Evict a subscriber after this many consecutive QueueFull events
+    _MAX_CONSECUTIVE_DROPS = 50
+
     def __init__(self) -> None:
         """Initialize the SSE hub with an empty subscriber registry."""
         self._subscribers: dict[str, asyncio.Queue[XRayEvent]] = {}
+        self._drop_counts: dict[str, int] = {}
 
     def subscribe(self) -> tuple[str, asyncio.Queue[XRayEvent]]:
         """Create a new subscription.
@@ -39,21 +43,35 @@ class SSEHub:
         """
         if client_id in self._subscribers:
             del self._subscribers[client_id]
+            self._drop_counts.pop(client_id, None)
             logger.debug(f"SSE client unsubscribed: {client_id}")
 
     async def broadcast(self, event: XRayEvent) -> None:
         """Push an event to all subscribers.
 
         Non-blocking: uses put_nowait and skips full queues.
+        Evicts subscribers whose queues stay full for too many consecutive events.
 
         Args:
             event: The event to broadcast.
         """
+        stale: list[str] = []
         for client_id, queue in list(self._subscribers.items()):
             try:
                 queue.put_nowait(event)
+                self._drop_counts.pop(client_id, None)
             except asyncio.QueueFull:
-                logger.warning(f"SSE queue full for client {client_id}, dropping event")
+                count = self._drop_counts.get(client_id, 0) + 1
+                self._drop_counts[client_id] = count
+                if count >= self._MAX_CONSECUTIVE_DROPS:
+                    stale.append(client_id)
+                    logger.warning(
+                        f"SSE client {client_id} evicted after {count} consecutive dropped events"
+                    )
+                else:
+                    logger.warning(f"SSE queue full for client {client_id}, dropping event")
+        for client_id in stale:
+            self.unsubscribe(client_id)
 
     @property
     def subscriber_count(self) -> int:

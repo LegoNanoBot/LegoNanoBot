@@ -13,8 +13,12 @@ if TYPE_CHECKING:
     from nanobot.xray.sse import SSEHub
 
 
-class BaseEventStore(Protocol):
-    """Protocol for persistent event storage backends."""
+class EventStoreProtocol(Protocol):
+    """Structural protocol for persistent event storage backends.
+
+    Note: the ABC lives in ``store.base.BaseEventStore``; this lightweight
+    Protocol lets the collector accept *any* object that exposes ``store()``.
+    """
 
     async def store(self, event: XRayEvent) -> None:
         """Persist an event."""
@@ -31,11 +35,11 @@ class EventCollector:
             max_buffer: Maximum number of events to keep in the ring buffer.
         """
         self._buffer: deque[XRayEvent] = deque(maxlen=max_buffer)
-        self._event_store: BaseEventStore | None = None
+        self._event_store: EventStoreProtocol | None = None
         self._sse_hub: SSEHub | None = None
         self._active_runs: dict[str, dict[str, Any]] = {}
 
-    def set_store(self, store: BaseEventStore) -> None:
+    def set_store(self, store: EventStoreProtocol) -> None:
         """Set the persistent storage backend.
 
         Args:
@@ -94,8 +98,7 @@ class EventCollector:
             }
         elif event.event_type == EventType.AGENT_END:
             if event.run_id in self._active_runs:
-                self._active_runs[event.run_id]["status"] = "completed"
-                self._active_runs[event.run_id]["end_time"] = event.timestamp
+                del self._active_runs[event.run_id]
         elif event.event_type == EventType.ERROR:
             if event.run_id in self._active_runs:
                 self._active_runs[event.run_id]["status"] = "error"

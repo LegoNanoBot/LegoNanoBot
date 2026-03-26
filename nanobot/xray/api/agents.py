@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
+from enum import Enum
+
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 router = APIRouter(tags=["agents"])
 
 
+class _StatusFilter(str, Enum):
+    active = "active"
+    completed = "completed"
+
+
 @router.get("/agents")
 async def list_agents(
     request: Request,
-    status: str | None = Query(None, description="Filter by status: active, completed"),
+    status: _StatusFilter | None = Query(None, description="Filter by status: active, completed"),
     limit: int = Query(50, ge=1, le=200),
 ):
     """List all agent runs."""
     store = request.app.state.event_store
-    runs = await store.get_agent_runs(status=status, limit=limit)
+    runs = await store.get_agent_runs(status=status.value if status else None, limit=limit)
     return {"runs": runs, "count": len(runs)}
 
 

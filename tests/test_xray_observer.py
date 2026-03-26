@@ -77,8 +77,7 @@ async def test_collector_active_runs():
 
     await collector.collect(create_event("runX", EventType.AGENT_END, {}))
     active = collector.get_active_runs()
-    assert "runX" in active
-    assert active["runX"]["status"] == "completed"
+    assert "runX" not in active  # completed runs are removed to prevent memory leak
 
 
 @pytest.mark.asyncio
