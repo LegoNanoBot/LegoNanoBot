@@ -1399,9 +1399,13 @@ xray:
 |---------|-------------|
 | **Dashboard** | Live view of active agents, queued messages, token stats |
 | **Agent Timeline** | Step-by-step visualization of LLM calls and tool executions |
+| **LLM Thinking Inspector** | View model reasoning — supports `<think>` blocks, `reasoning_content`, and `thinking_blocks` |
+| **System Prompt Viewer** | Inspect the full system prompt (SOUL.md + bootstrap files) sent to the LLM |
 | **Conversation Viewer** | Full LLM message chain with chat-bubble UI |
 | **Config Inspector** | Browse Memory, Soul, Skills, MCP, and Tools at a glance |
 | **Token Analytics** | Per-run and aggregate prompt/completion token tracking |
+| **Unified Run Tracing** | End-to-end event correlation from message_in through agent loop to message_out |
+| **Real-time SSE Stream** | Live event push with automatic stale-connection eviction |
 | **REST API** | 13 endpoints + SSE stream at `/api/v1/` (Swagger docs at `/api/docs`) |
 
 </details>
