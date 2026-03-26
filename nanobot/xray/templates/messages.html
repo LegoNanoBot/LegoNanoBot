@@ -109,6 +109,35 @@
             {% endif %}
             
             {% elif event_type == 'llm_response' %}
+            <!-- LLM Thinking (if present) -->
+            {% if event_data.get('reasoning_content') %}
+            <div class="flex justify-center">
+                <div class="max-w-3xl w-full bg-orange-900/20 rounded-lg p-4 border border-orange-700/30">
+                    <details>
+                        <summary class="flex items-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                            <span class="text-xs text-orange-400 uppercase tracking-wider">LLM Thinking</span>
+                        </summary>
+                        <pre class="mt-2 text-sm text-orange-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{{ event_data.reasoning_content[:5000] }}{% if (event_data.reasoning_content|length) > 5000 %}...{% endif %}</pre>
+                    </details>
+                </div>
+            </div>
+            {% endif %}
+            {% if event_data.get('thinking_blocks') %}
+            <div class="flex justify-center">
+                <div class="max-w-3xl w-full bg-orange-900/20 rounded-lg p-4 border border-orange-700/30">
+                    <details>
+                        <summary class="flex items-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                            <span class="text-xs text-orange-400 uppercase tracking-wider">LLM Thinking ({{ event_data.thinking_blocks|length }} blocks)</span>
+                        </summary>
+                        {% for block in event_data.thinking_blocks %}
+                        <pre class="mt-2 text-sm text-orange-200 whitespace-pre-wrap max-h-96 overflow-y-auto">{{ block.get('thinking', block.get('text', ''))[:5000] }}{% if (block.get('thinking', block.get('text', ''))|length) > 5000 %}...{% endif %}</pre>
+                        {% endfor %}
+                    </details>
+                </div>
+            </div>
+            {% endif %}
             <!-- LLM Response indicator -->
             <div class="flex justify-center">
                 <div class="bg-gray-700/30 rounded px-3 py-1 text-xs text-gray-400 flex items-center gap-2">

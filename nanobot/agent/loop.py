@@ -250,6 +250,8 @@ class AgentLoop:
                             "tool_calls": tool_call_names,
                             "usage": usage_dict,
                             "finish_reason": response.finish_reason,
+                            "reasoning_content": response.reasoning_content,
+                            "thinking_blocks": response.thinking_blocks,
                         }
                     )
                 except Exception:
