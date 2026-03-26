@@ -998,40 +998,254 @@ def channels_login():
 
 
 @app.command()
-def status():
-    """Show nanobot status."""
-    from nanobot.config.loader import get_config_path, load_config
+def status(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+):
+    """Show nanobot status: config, providers, channels, plugins, supervisor, xray."""
+    from nanobot.config.loader import get_config_path, load_config, set_config_path
 
-    config_path = get_config_path()
-    config = load_config()
-    workspace = config.workspace_path
+    if config:
+        config_path = Path(config).expanduser().resolve()
+        set_config_path(config_path)
+    else:
+        config_path = get_config_path()
+
+    cfg = load_config(config_path if config else None)
+    workspace = cfg.workspace_path
 
     console.print(f"{__logo__} nanobot Status\n")
 
-    console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
-    console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
+    # ── Core ──────────────────────────────────────────────────────────
+    table_core = Table(title="Core", show_header=False, box=None, padding=(0, 2))
+    table_core.add_column("Key", style="bold")
+    table_core.add_column("Value")
+    table_core.add_row("Version", __version__)
+    table_core.add_row("Config", f"{config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
+    table_core.add_row("Workspace", f"{workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")
+    table_core.add_row("Model", cfg.agents.defaults.model)
+    table_core.add_row("Provider", cfg.agents.defaults.provider)
+    table_core.add_row("Context window", f"{cfg.agents.defaults.context_window_tokens:,} tokens")
+    table_core.add_row("Max tool iterations", str(cfg.agents.defaults.max_tool_iterations))
+    console.print(table_core)
+    console.print()
 
-    if config_path.exists():
-        from nanobot.providers.registry import PROVIDERS
+    if not config_path.exists():
+        console.print("[yellow]Config file not found. Run [cyan]nanobot onboard[/cyan] first.[/yellow]")
+        return
 
-        console.print(f"Model: {config.agents.defaults.model}")
+    # ── Providers ─────────────────────────────────────────────────────
+    from nanobot.providers.registry import BUILTIN_PROVIDERS, PROVIDERS
 
-        # Check API keys from registry
-        for spec in PROVIDERS:
-            p = config.get_provider_config(spec.name)
-            if p is None:
-                continue
-            if spec.is_oauth:
-                console.print(f"{spec.label}: [green]✓ (OAuth)[/green]")
-            elif spec.is_local:
-                # Local deployments show api_base instead of api_key
-                if p.api_base:
-                    console.print(f"{spec.label}: [green]✓ {p.api_base}[/green]")
-                else:
-                    console.print(f"{spec.label}: [dim]not set[/dim]")
+    table_prov = Table(title="Providers", show_header=True, box=None, padding=(0, 2))
+    table_prov.add_column("Provider", style="bold")
+    table_prov.add_column("Status")
+
+    for spec in PROVIDERS:
+        p = cfg.get_provider_config(spec.name)
+        if p is None:
+            continue
+        if spec.is_oauth:
+            table_prov.add_row(spec.label, "[green]✓ (OAuth)[/green]")
+        elif spec.is_local:
+            if p.api_base:
+                table_prov.add_row(spec.label, f"[green]✓[/green] {p.api_base}")
             else:
-                has_key = bool(p.api_key)
-                console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+                table_prov.add_row(spec.label, "[dim]not set[/dim]")
+        else:
+            has_key = bool(p.api_key)
+            table_prov.add_row(spec.label, "[green]✓[/green]" if has_key else "[dim]not set[/dim]")
+    console.print(table_prov)
+    console.print()
+
+    # ── Channels ──────────────────────────────────────────────────────
+    from nanobot.channels.registry import discover_channel_names
+
+    table_chan = Table(title="Channels", show_header=True, box=None, padding=(0, 2))
+    table_chan.add_column("Channel", style="bold")
+    table_chan.add_column("Status")
+
+    for modname in discover_channel_names():
+        section = getattr(cfg.channels, modname, None)
+        if section is None:
+            continue  # skip internal modules without config
+        enabled = bool(getattr(section, "enabled", False))
+        table_chan.add_row(modname, "[green]✓ enabled[/green]" if enabled else "[dim]disabled[/dim]")
+
+    # Plugin channels
+    for raw_name, section in cfg.channels.plugins.items():
+        enabled = bool(section and getattr(section, "enabled", False))
+        table_chan.add_row(f"{raw_name} [cyan](plugin)[/cyan]", "[green]✓ enabled[/green]" if enabled else "[dim]disabled[/dim]")
+
+    console.print(table_chan)
+    console.print()
+
+    # ── Plugins ───────────────────────────────────────────────────────
+    from nanobot.channels.channel_plugins import load_channel_factories
+    from nanobot.memory.memory_plugins import load_memory_factories
+    from nanobot.providers.provider_plugins import load_provider_factories
+
+    provider_factories = load_provider_factories()
+    channel_factories = load_channel_factories()
+    memory_factories = load_memory_factories()
+
+    plugin_specs = [s for s in PROVIDERS if s.name not in {b.name for b in BUILTIN_PROVIDERS}]
+
+    has_plugins = plugin_specs or provider_factories or channel_factories or memory_factories
+
+    if has_plugins:
+        table_plug = Table(title="Plugins", show_header=True, box=None, padding=(0, 2))
+        table_plug.add_column("Type", style="bold")
+        table_plug.add_column("Name")
+
+        for spec in plugin_specs:
+            table_plug.add_row("Provider spec", spec.label)
+        for name in provider_factories:
+            table_plug.add_row("Provider factory", name)
+        for name in channel_factories:
+            table_plug.add_row("Channel factory", name)
+        for name in memory_factories:
+            table_plug.add_row("Memory factory", name)
+
+        console.print(table_plug)
+    else:
+        console.print("[dim]Plugins: none installed[/dim]")
+    console.print()
+
+    # ── Memory ────────────────────────────────────────────────────────
+    table_mem = Table(title="Memory", show_header=False, box=None, padding=(0, 2))
+    table_mem.add_column("Key", style="bold")
+    table_mem.add_column("Value")
+    table_mem.add_row("Backend", cfg.memory.backend)
+    if cfg.memory.backend in {"filesystem", "file", "default"}:
+        fs = cfg.memory.filesystem
+        table_mem.add_row("Directory", fs.dir)
+        table_mem.add_row("Memory file", fs.memory_file)
+    if cfg.memory.plugins:
+        table_mem.add_row("Plugin configs", ", ".join(cfg.memory.plugins.keys()))
+    console.print(table_mem)
+    console.print()
+
+    # ── MCP Servers ───────────────────────────────────────────────────
+    if cfg.tools.mcp_servers:
+        table_mcp = Table(title="MCP Servers", show_header=True, box=None, padding=(0, 2))
+        table_mcp.add_column("Name", style="bold")
+        table_mcp.add_column("Type")
+        table_mcp.add_column("Endpoint")
+
+        for name, mcp_cfg in cfg.tools.mcp_servers.items():
+            mcp_type = mcp_cfg.type or "auto"
+            endpoint = mcp_cfg.url or f"{mcp_cfg.command} {' '.join(mcp_cfg.args)}".strip()
+            table_mcp.add_row(name, mcp_type, endpoint or "[dim]—[/dim]")
+
+        console.print(table_mcp)
+        console.print()
+
+    # ── Gateway ───────────────────────────────────────────────────────
+    table_gw = Table(title="Gateway", show_header=False, box=None, padding=(0, 2))
+    table_gw.add_column("Key", style="bold")
+    table_gw.add_column("Value")
+    table_gw.add_row("Bind", f"{cfg.gateway.host}:{cfg.gateway.port}")
+    hb = cfg.gateway.heartbeat
+    table_gw.add_row("Heartbeat", f"{'[green]✓[/green]' if hb.enabled else '[dim]disabled[/dim]'} (every {hb.interval_s}s)")
+    console.print(table_gw)
+    console.print()
+
+    # ── X-Ray ─────────────────────────────────────────────────────────
+    table_xray = Table(title="X-Ray", show_header=False, box=None, padding=(0, 2))
+    table_xray.add_column("Key", style="bold")
+    table_xray.add_column("Value")
+
+    if cfg.xray.enabled:
+        table_xray.add_row("Enabled", "[green]✓[/green]")
+        table_xray.add_row("Endpoint", f"http://{cfg.xray.host}:{cfg.xray.port}")
+        table_xray.add_row("DB path", cfg.xray.db_path)
+        table_xray.add_row("Retention", f"{cfg.xray.retention_hours}h")
+
+        # Probe X-Ray availability
+        try:
+            from nanobot.xray import XRAY_AVAILABLE
+            table_xray.add_row("Dependencies", "[green]✓ installed[/green]" if XRAY_AVAILABLE else "[red]✗ missing[/red] (pip install -e '.[xray]')")
+        except Exception:
+            table_xray.add_row("Dependencies", "[red]✗ import error[/red]")
+
+        # Check if xray is live
+        _probe_http(table_xray, f"http://{cfg.xray.host}:{cfg.xray.port}/api/docs", "Service")
+    else:
+        table_xray.add_row("Enabled", "[dim]disabled[/dim]")
+
+    console.print(table_xray)
+    console.print()
+
+    # ── Supervisor ────────────────────────────────────────────────────
+    table_sv = Table(title="Supervisor", show_header=False, box=None, padding=(0, 2))
+    table_sv.add_column("Key", style="bold")
+    table_sv.add_column("Value")
+
+    # Probe default supervisor endpoint
+    sv_url = "http://127.0.0.1:9200"
+    _probe_http(table_sv, f"{sv_url}/api/v1/supervisor/workers", "Service")
+
+    # Query workers if supervisor is up
+    try:
+        import httpx
+        resp = httpx.get(f"{sv_url}/api/v1/supervisor/workers", timeout=2.0)
+        if resp.status_code == 200:
+            workers = resp.json()
+            if isinstance(workers, list):
+                table_sv.add_row("Workers", str(len(workers)))
+                for w in workers:
+                    w_status = w.get("status", "unknown")
+                    w_name = w.get("name", w.get("worker_id", "?"))
+                    color = "green" if w_status == "online" else "yellow" if w_status == "busy" else "red"
+                    task_info = f" → task {w.get('current_task_id')}" if w.get("current_task_id") else ""
+                    table_sv.add_row(f"  {w_name}", f"[{color}]{w_status}[/{color}]{task_info}")
+    except Exception:
+        pass
+
+    # Query pending/running tasks
+    try:
+        import httpx
+        resp = httpx.get(f"{sv_url}/api/v1/supervisor/tasks", timeout=2.0)
+        if resp.status_code == 200:
+            tasks = resp.json()
+            if isinstance(tasks, list) and tasks:
+                by_status: dict[str, int] = {}
+                for t in tasks:
+                    s = t.get("status", "unknown")
+                    by_status[s] = by_status.get(s, 0) + 1
+                summary = ", ".join(f"{v} {k}" for k, v in sorted(by_status.items()))
+                table_sv.add_row("Tasks", summary)
+    except Exception:
+        pass
+
+    console.print(table_sv)
+    console.print()
+
+    # ── Cron ──────────────────────────────────────────────────────────
+    from nanobot.config.paths import get_cron_dir
+    from nanobot.cron.service import CronService
+
+    cron_store_path = get_cron_dir() / "jobs.json"
+    if cron_store_path.exists():
+        cron = CronService(cron_store_path)
+        cron_status = cron.status()
+        svc_state = "[green]running[/green]" if cron_status.get("enabled") else "[dim]stopped[/dim]"
+        console.print(f"[bold]Cron:[/bold]  {cron_status['jobs']} jobs ({svc_state})")
+    else:
+        console.print("[bold]Cron:[/bold]  [dim]no jobs[/dim]")
+
+
+def _probe_http(table: Table, url: str, label: str) -> None:
+    """Probe an HTTP endpoint and add a row to the table."""
+    try:
+        import httpx
+        resp = httpx.get(url, timeout=2.0)
+        if resp.status_code < 500:
+            table.add_row(label, f"[green]✓ running[/green] ({url})")
+        else:
+            table.add_row(label, f"[yellow]⚠ HTTP {resp.status_code}[/yellow] ({url})")
+    except Exception:
+        table.add_row(label, f"[dim]not running[/dim] ({url})")
 
 
 # ============================================================================
