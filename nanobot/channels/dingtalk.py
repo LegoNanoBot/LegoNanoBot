@@ -47,22 +47,112 @@ class NanobotDingTalkHandler(CallbackHandler):
         super().__init__()
         self.channel = channel
 
+    @staticmethod
+    def _extract_rich_text(payload: dict[str, Any]) -> str:
+        content = payload.get("content") or {}
+        rich = content.get("richText") or content.get("richtext") or payload.get("richText")
+        if isinstance(rich, str):
+            return rich.strip()
+
+        parts: list[str] = []
+        if isinstance(rich, dict):
+            rich = rich.get("nodes") or rich.get("elements") or rich.get("content")
+
+        if isinstance(rich, list):
+            for node in rich:
+                if isinstance(node, str):
+                    parts.append(node)
+                    continue
+                if not isinstance(node, dict):
+                    continue
+                if node.get("text"):
+                    parts.append(str(node["text"]))
+                elif node.get("content") and isinstance(node["content"], str):
+                    parts.append(node["content"])
+                elif isinstance(node.get("children"), list):
+                    for child in node["children"]:
+                        if isinstance(child, dict) and child.get("text"):
+                            parts.append(str(child["text"]))
+
+        return "\n".join(p.strip() for p in parts if isinstance(p, str) and p.strip()).strip()
+
+    @classmethod
+    def _extract_text_content(cls, chatbot_msg: Any, payload: dict[str, Any]) -> str:
+        content = ""
+        if chatbot_msg.text:
+            content = chatbot_msg.text.content.strip()
+        elif chatbot_msg.extensions.get("content", {}).get("recognition"):
+            content = chatbot_msg.extensions["content"]["recognition"].strip()
+
+        if not content:
+            content = payload.get("text", {}).get("content", "").strip()
+        if not content:
+            content = str((payload.get("content") or {}).get("text") or "").strip()
+        if not content:
+            content = cls._extract_rich_text(payload)
+        return content
+
+    @staticmethod
+    def _extract_media_refs(payload: dict[str, Any], chatbot_msg: Any) -> list[str]:
+        media_refs: list[str] = []
+
+        def _append(value: Any) -> None:
+            if not isinstance(value, str):
+                return
+            item = value.strip()
+            if item and item not in media_refs:
+                media_refs.append(item)
+
+        def _collect_file_like(item: dict[str, Any]) -> None:
+            for key in (
+                "downloadUrl",
+                "download_url",
+                "url",
+                "fileUrl",
+                "fileURL",
+                "photoURL",
+                "mediaId",
+                "media_id",
+                "downloadCode",
+            ):
+                _append(item.get(key))
+
+        attachments = payload.get("attachments")
+        if isinstance(attachments, list):
+            for item in attachments:
+                if isinstance(item, dict):
+                    _collect_file_like(item)
+
+        content = payload.get("content")
+        if isinstance(content, dict):
+            for key in ("files", "attachments"):
+                files = content.get(key)
+                if isinstance(files, list):
+                    for item in files:
+                        if isinstance(item, dict):
+                            _collect_file_like(item)
+            _collect_file_like(content)
+
+        _append(payload.get("downloadUrl"))
+        _append(payload.get("mediaId"))
+
+        msg_type = (getattr(chatbot_msg, "message_type", "") or "").lower()
+        if msg_type in {"picture", "image", "audio", "voice", "video", "file"} and not media_refs:
+            _append(str((payload.get("text") or {}).get("content") or ""))
+
+        return media_refs
+
     async def process(self, message: CallbackMessage):
         """Process incoming stream message."""
         try:
             # Parse using SDK's ChatbotMessage for robust handling
             chatbot_msg = ChatbotMessage.from_dict(message.data)
 
-            # Extract text content; fall back to raw dict if SDK object is empty
-            content = ""
-            if chatbot_msg.text:
-                content = chatbot_msg.text.content.strip()
-            elif chatbot_msg.extensions.get("content", {}).get("recognition"):
-                content = chatbot_msg.extensions["content"]["recognition"].strip()
-            if not content:
-                content = message.data.get("text", {}).get("content", "").strip()
+            payload = message.data or {}
+            content = self._extract_text_content(chatbot_msg, payload)
+            media_refs = self._extract_media_refs(payload, chatbot_msg)
 
-            if not content:
+            if not content and not media_refs:
                 logger.warning(
                     "Received empty or unsupported message type: {}",
                     chatbot_msg.message_type,
@@ -78,6 +168,9 @@ class NanobotDingTalkHandler(CallbackHandler):
                 or message.data.get("openConversationId")
             )
 
+            if not content and media_refs:
+                content = "[Attachment message]"
+
             logger.info("Received DingTalk message from {} ({}): {}", sender_name, sender_id, content)
 
             # Forward to Nanobot via _on_message (non-blocking).
@@ -89,6 +182,8 @@ class NanobotDingTalkHandler(CallbackHandler):
                     sender_name,
                     conversation_type,
                     conversation_id,
+                    media_refs,
+                    getattr(chatbot_msg, "message_type", None),
                 )
             )
             self.channel._background_tasks.add(task)
@@ -362,6 +457,74 @@ class DingTalkChannel(BaseChannel):
             {"text": content, "title": "Nanobot Reply"},
         )
 
+    async def _send_rich_text(self, token: str, chat_id: str, rich_payload: Any) -> bool:
+        msg_param: dict[str, Any]
+        if isinstance(rich_payload, dict):
+            if "richText" in rich_payload:
+                msg_param = {"richText": rich_payload["richText"]}
+            elif "richtext" in rich_payload:
+                msg_param = {"richText": rich_payload["richtext"]}
+            else:
+                msg_param = rich_payload
+        elif isinstance(rich_payload, list):
+            msg_param = {"richText": rich_payload}
+        else:
+            msg_param = {"richText": str(rich_payload)}
+
+        return await self._send_batch_message(
+            token,
+            chat_id,
+            "sampleRichText",
+            msg_param,
+        )
+
+    async def _send_uploaded_media(
+        self,
+        token: str,
+        chat_id: str,
+        upload_type: str,
+        media_id: str,
+        filename: str,
+        file_type: str,
+    ) -> bool:
+        if upload_type == "image":
+            ok = await self._send_batch_message(
+                token,
+                chat_id,
+                "sampleImageMsg",
+                {"photoURL": media_id},
+            )
+            if ok:
+                return True
+
+        if upload_type == "voice":
+            for msg_key in ("sampleAudio", "sampleVoice"):
+                ok = await self._send_batch_message(
+                    token,
+                    chat_id,
+                    msg_key,
+                    {"mediaId": media_id},
+                )
+                if ok:
+                    return True
+
+        if upload_type == "video":
+            ok = await self._send_batch_message(
+                token,
+                chat_id,
+                "sampleVideo",
+                {"mediaId": media_id},
+            )
+            if ok:
+                return True
+
+        return await self._send_batch_message(
+            token,
+            chat_id,
+            "sampleFile",
+            {"mediaId": media_id, "fileName": filename, "fileType": file_type},
+        )
+
     async def _send_media_ref(self, token: str, chat_id: str, media_ref: str) -> bool:
         media_ref = (media_ref or "").strip()
         if not media_ref:
@@ -402,23 +565,13 @@ class DingTalkChannel(BaseChannel):
         if not media_id:
             return False
 
-        if upload_type == "image":
-            # Verified in production: sampleImageMsg accepts media_id in photoURL.
-            ok = await self._send_batch_message(
-                token,
-                chat_id,
-                "sampleImageMsg",
-                {"photoURL": media_id},
-            )
-            if ok:
-                return True
-            logger.warning("DingTalk image media_id send failed, falling back to file: {}", media_ref)
-
-        return await self._send_batch_message(
-            token,
-            chat_id,
-            "sampleFile",
-            {"mediaId": media_id, "fileName": filename, "fileType": file_type},
+        return await self._send_uploaded_media(
+            token=token,
+            chat_id=chat_id,
+            upload_type=upload_type,
+            media_id=media_id,
+            filename=filename,
+            file_type=file_type,
         )
 
     async def send(self, msg: OutboundMessage) -> None:
@@ -426,6 +579,19 @@ class DingTalkChannel(BaseChannel):
         token = await self._get_access_token()
         if not token:
             return
+
+        metadata = msg.metadata or {}
+
+        custom_msg_key = str(metadata.get("dingtalk_msg_key") or "").strip()
+        custom_msg_param = metadata.get("dingtalk_msg_param")
+        if custom_msg_key and isinstance(custom_msg_param, dict):
+            await self._send_batch_message(token, msg.chat_id, custom_msg_key, custom_msg_param)
+
+        rich_payload = metadata.get("dingtalk_rich_text")
+        if rich_payload is None:
+            rich_payload = metadata.get("rich_text")
+        if rich_payload is not None:
+            await self._send_rich_text(token, msg.chat_id, rich_payload)
 
         if msg.content and msg.content.strip():
             await self._send_markdown_text(token, msg.chat_id, msg.content.strip())
@@ -450,6 +616,8 @@ class DingTalkChannel(BaseChannel):
         sender_name: str,
         conversation_type: str | None = None,
         conversation_id: str | None = None,
+        media: list[str] | None = None,
+        message_type: str | None = None,
     ) -> None:
         """Handle incoming message (called by NanobotDingTalkHandler).
 
@@ -464,10 +632,12 @@ class DingTalkChannel(BaseChannel):
                 sender_id=sender_id,
                 chat_id=chat_id,
                 content=str(content),
+                media=media or [],
                 metadata={
                     "sender_name": sender_name,
                     "platform": "dingtalk",
                     "conversation_type": conversation_type,
+                    "message_type": message_type,
                 },
             )
         except Exception as e:
