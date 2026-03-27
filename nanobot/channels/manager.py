@@ -96,7 +96,7 @@ class ChannelManager:
         for name, ch in self.channels.items():
             allow_from = getattr(ch.config, "allow_from", None)
             if allow_from is None and isinstance(ch.config, dict):
-                allow_from = ch.config.get("allow_from")
+                allow_from = ch.config.get("allow_from") or ch.config.get("allowFrom")
             if allow_from == []:
                 raise SystemExit(
                     f'Error: "{name}" has empty allowFrom (denies all). '

@@ -248,6 +248,7 @@ class ChannelPluginConfig(Base):
     """Generic plugin channel configuration."""
 
     enabled: bool = False
+    allow_from: list[str] = Field(default_factory=list)
     task_receipt: TaskReceiptOverride | None = None
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
 
