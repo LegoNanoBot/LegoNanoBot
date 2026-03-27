@@ -1376,10 +1376,9 @@ def supervisor(
 
     console.print(f"{__logo__} Starting supervisor on {host}:{port}...")
 
-    registry = WorkerRegistry(heartbeat_timeout_s=heartbeat_timeout)
-
     # Optional: set up X-Ray stores for aggregated monitoring
     xray_kwargs: dict = {}
+    collector = None
     if cfg.xray.enabled:
         try:
             from nanobot.xray import XRAY_AVAILABLE
@@ -1409,6 +1408,11 @@ def supervisor(
                 console.print("[green]✓[/green] X-Ray monitoring enabled")
         except Exception as e:
             console.print(f"[yellow]X-Ray init failed: {e}[/yellow]")
+
+    registry = WorkerRegistry(
+        heartbeat_timeout_s=heartbeat_timeout,
+        collector=collector,
+    )
 
     supervisor_app = create_supervisor_app(
         worker_registry=registry,

@@ -1,6 +1,6 @@
 # Supervisor Gateway — 递进式实现蓝图
 
-> **当前状态**：Phase 0（MVP 验证）已完成并合并到 `feature/xray-monitoring` 分支。  
+> **当前状态**：Phase 0（MVP 验证）已完成；Phase 1 / Task 1.1 已落地并通过单测验证（2026-03-27）。  
 > **设计原则**：每个 Phase 可独立交付、独立测试、独立回滚。后续 Phase 依赖前置 Phase 但不破坏已有功能。
 
 ---
@@ -89,7 +89,6 @@
 - httpx.ASGITransport 进程内集成测试
 
 **已知限制**（后续 Phase 解决）：
-- ❌ X-Ray 事件只定义未发射
 - ❌ 任务超时字段定义但未强制执行
 - ❌ 注册表纯内存，重启即丢
 - ❌ 无通道回传（任务结果不回用户）
@@ -111,8 +110,8 @@
 **问题**：14 个事件类型已定义在 `xray/events.py`，但 registry/watchdog 中无发射代码，监控系统对 supervisor 完全失明。
 
 **实现**：
-- [ ] `registry.py` 接受可选 `collector: XRayCollector` 参数
-- [ ] 在以下位置发射事件：
+- [x] `registry.py` 接受可选 `collector: XRayCollector` 参数
+- [x] 在以下位置发射事件：
   - `register_worker()` → `WORKER_REGISTERED`
   - `heartbeat()` → `WORKER_HEARTBEAT`
   - `scan_unhealthy_workers()` → `WORKER_UNHEALTHY`
@@ -127,10 +126,24 @@
   - `approve_plan()` → `PLAN_APPROVED`
   - `_advance_plan(completed)` → `PLAN_COMPLETED`
   - `_advance_plan(failed)` → `PLAN_FAILED`
-- [ ] `watchdog.py` 中发射 `WORKER_EVICTED` 事件
-- [ ] 测试：验证事件发射数量与 payload 正确性
+- [x] `watchdog.py` 中发射 `WORKER_EVICTED` 事件
+- [x] 测试：验证事件发射数量与 payload 正确性
 
 **验收标准**：启动 supervisor + X-Ray 后，仪表盘可实时显示 worker 注册、任务流转、计划推进。
+
+#### Task 1.1 进度说明（2026-03-27）
+
+**本次已完成**：
+- supervisor 状态机关键路径已接入事件发射（worker/task/plan/eviction 全链路）
+- 引入 `EventSink` 抽象层，隔离 supervisor 领域逻辑与 X-Ray 具体实现
+- `claim_task()` 从“全量排序”优化为“线性最早选择”，降低热路径开销
+- 任务结果事件 payload 收敛为 `result_preview + result_len`，避免大文本直接上报
+- 测试补齐并通过：`PYTHONPATH=. pytest -q tests/test_supervisor_registry.py tests/test_xray_events.py`（29 passed）
+
+**遗漏工作（待补）**：
+- 环境缺少 `fastapi`，当前未完成 supervisor 相关集成测试收敛（需补跑 `tests/test_supervisor_integration.py`）
+- 事件发射超时阈值当前为代码内默认值（`0.05s`），尚未配置化
+- 任务调度仍是遍历式选择，尚未升级为 Phase 6 规划中的优先级/能力匹配索引结构
 
 ---
 
@@ -676,10 +689,11 @@ Phase 0 ✅ ─┬─► Phase 1（加固） ─┬─► Phase 2（持久化）
 nanobot/supervisor/
 ├── __init__.py                  # 包入口
 ├── app.py                       # FastAPI 应用工厂（~90 行）
+├── event_sink.py                # 事件抽象层与 X-Ray 适配器（~54 行）
 ├── models.py                    # 域模型：Worker/Task/Plan/协议消息（~192 行）
-├── registry.py                  # 注册表：状态管理 + 业务逻辑（~350 行）
+├── registry.py                  # 注册表：状态管理 + 业务逻辑（~500 行）
 ├── planner.py                   # LLM 驱动计划生成（~130 行）
-├── watchdog.py                  # 心跳监控 + Worker 驱逐（~70 行）
+├── watchdog.py                  # 心跳监控 + Worker 驱逐（~80 行）
 └── api/
     ├── __init__.py
     ├── workers.py               # Worker CRUD 端点（~115 行，5 endpoints）
@@ -710,7 +724,7 @@ tests/
 ### X-Ray 集成
 
 ```
-nanobot/xray/events.py          # 14 个 supervisor 事件类型常量（已定义，未发射）
+nanobot/xray/events.py          # 14 个 supervisor 事件类型常量（已定义并已接入发射）
 ```
 
 ### CLI

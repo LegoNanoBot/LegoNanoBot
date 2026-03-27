@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 
+from nanobot.supervisor.event_sink import XRayCollectorEventSink
 from nanobot.supervisor.api import plans, tasks, workers
 from nanobot.supervisor.registry import WorkerRegistry
 
@@ -40,7 +41,9 @@ def create_supervisor_app(
     )
 
     # Supervisor state
-    registry = worker_registry or WorkerRegistry()
+    registry = worker_registry or WorkerRegistry(
+        event_sink=XRayCollectorEventSink(collector) if collector is not None else None,
+    )
     app.state.worker_registry = registry
 
     # Register supervisor API routers

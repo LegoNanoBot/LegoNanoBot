@@ -17,12 +17,36 @@ from nanobot.supervisor.models import (
     WorkerRegisterRequest,
     WorkerStatus,
 )
+from nanobot.supervisor.event_sink import SupervisorEventType
 from nanobot.supervisor.registry import WorkerRegistry
+from nanobot.supervisor.watchdog import WatchdogService
+
+
+class _FakeEventSink:
+    def __init__(self):
+        self.events = []
+
+    async def emit(self, run_id, event_type, data):
+        self.events.append({
+            "run_id": run_id,
+            "event_type": event_type,
+            "data": data,
+        })
 
 
 @pytest.fixture
 def registry():
     return WorkerRegistry(heartbeat_timeout_s=5.0)
+
+
+@pytest.fixture
+def event_collector():
+    return _FakeEventSink()
+
+
+@pytest.fixture
+def registry_with_events(event_collector):
+    return WorkerRegistry(heartbeat_timeout_s=5.0, event_sink=event_collector)
 
 
 @pytest.fixture
@@ -315,3 +339,95 @@ async def test_evict_worker_requeues_tasks(registry, _reg_worker):
     # Worker should be gone
     w = await registry.get_worker("w1")
     assert w is None
+
+
+@pytest.mark.asyncio
+async def test_registry_emits_worker_events(registry_with_events, event_collector):
+    req = WorkerRegisterRequest(worker_id="w1", name="worker-1")
+    await registry_with_events.register_worker(req)
+    await registry_with_events.heartbeat(HeartbeatRequest(worker_id="w1", status=WorkerStatus.BUSY))
+
+    assert len(event_collector.events) == 2
+    assert event_collector.events[0]["event_type"] == SupervisorEventType.WORKER_REGISTERED
+    assert event_collector.events[0]["data"]["worker_id"] == "w1"
+    assert event_collector.events[1]["event_type"] == SupervisorEventType.WORKER_HEARTBEAT
+    assert event_collector.events[1]["data"]["status"] == WorkerStatus.BUSY.value
+
+
+@pytest.mark.asyncio
+async def test_registry_emits_task_events(registry_with_events, event_collector):
+    await registry_with_events.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    task = Task(instruction="do work")
+    await registry_with_events.create_task(task)
+
+    claimed = await registry_with_events.claim_task(TaskClaimRequest(worker_id="w1"))
+    assert claimed is not None
+
+    await registry_with_events.report_progress(
+        TaskProgressReport(task_id=task.task_id, worker_id="w1", iteration=1, message="halfway"),
+    )
+    await registry_with_events.report_result(
+        TaskResultReport(task_id=task.task_id, worker_id="w1", status=TaskStatus.COMPLETED, result="done"),
+    )
+
+    event_types = [e["event_type"] for e in event_collector.events]
+    assert SupervisorEventType.TASK_CREATED in event_types
+    assert SupervisorEventType.TASK_ASSIGNED in event_types
+    assert SupervisorEventType.TASK_PROGRESS in event_types
+    assert SupervisorEventType.TASK_COMPLETED in event_types
+
+
+@pytest.mark.asyncio
+async def test_registry_emits_plan_events(registry_with_events, event_collector):
+    await registry_with_events.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    steps = [PlanStep(index=0, instruction="step 0")]
+    plan = Plan(title="Test", goal="test", steps=steps)
+    await registry_with_events.create_plan(plan)
+    await registry_with_events.approve_plan(plan.plan_id)
+
+    claimed = await registry_with_events.claim_task(TaskClaimRequest(worker_id="w1"))
+    assert claimed is not None
+    await registry_with_events.report_result(
+        TaskResultReport(task_id=claimed.task_id, worker_id="w1", status=TaskStatus.COMPLETED, result="ok"),
+    )
+
+    event_types = [e["event_type"] for e in event_collector.events]
+    assert SupervisorEventType.PLAN_CREATED in event_types
+    assert SupervisorEventType.PLAN_APPROVED in event_types
+    assert SupervisorEventType.PLAN_COMPLETED in event_types
+
+
+@pytest.mark.asyncio
+async def test_registry_emits_unhealthy_and_evicted_events(registry_with_events, event_collector):
+    await registry_with_events.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+
+    worker = await registry_with_events.get_worker("w1")
+    assert worker is not None
+    worker.last_heartbeat -= 999
+
+    unhealthy = await registry_with_events.scan_unhealthy_workers()
+    assert len(unhealthy) == 1
+    await registry_with_events.evict_worker("w1")
+
+    event_types = [e["event_type"] for e in event_collector.events]
+    assert SupervisorEventType.WORKER_UNHEALTHY in event_types
+    assert SupervisorEventType.WORKER_EVICTED in event_types
+
+
+@pytest.mark.asyncio
+async def test_watchdog_emits_worker_evicted_event(event_collector):
+    registry = WorkerRegistry(heartbeat_timeout_s=0.01, event_sink=event_collector)
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+
+    worker = await registry.get_worker("w1")
+    assert worker is not None
+    worker.last_heartbeat -= 999
+
+    watchdog = WatchdogService(registry, check_interval_s=0.01)
+    await watchdog.start()
+    await asyncio.sleep(0.05)
+    watchdog.stop()
+
+    evicted_events = [e for e in event_collector.events if e["event_type"] == SupervisorEventType.WORKER_EVICTED]
+    assert len(evicted_events) == 1
+    assert evicted_events[0]["data"]["reason"] == "heartbeat_timeout"
