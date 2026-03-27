@@ -52,11 +52,10 @@ class ToolRegistry:
 
         if self.observer and run_id:
             try:
-                params_summary = str(params)[:500] if params else ""
                 await self.observer.emit(
                     run_id=run_id,
                     event_type="tool_call_start",
-                    data={"tool_name": name, "params_preview": params_summary}
+                    data={"tool_name": name, "arguments": params or {}}
                 )
             except Exception:
                 pass
@@ -80,11 +79,11 @@ class ToolRegistry:
         if self.observer and run_id:
             try:
                 duration_s = time.time() - t0
-                result_preview = result[:500] if isinstance(result, str) else str(result)[:500]
+                result_str = result if isinstance(result, str) else str(result)
                 await self.observer.emit(
                     run_id=run_id,
                     event_type="tool_call_end",
-                    data={"tool_name": name, "result_preview": result_preview, "duration_s": duration_s}
+                    data={"tool_name": name, "result_preview": result_str[:500], "result": result_str[:20000], "duration_s": duration_s}
                 )
             except Exception:
                 pass

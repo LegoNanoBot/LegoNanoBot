@@ -242,7 +242,7 @@ class AgentLoop:
                         xray_msgs = []
                         for m in messages:
                             role = m.get("role", "")
-                            mc = m.get("content", "")
+                            mc = m.get("content") or ""
                             if isinstance(mc, list):
                                 mc = " ".join(
                                     part.get("text", "") for part in mc if isinstance(part, dict)
@@ -252,9 +252,20 @@ class AgentLoop:
                             elif role == "user":
                                 xray_msgs.append({"role": "user", "content": mc[:5000]})
                             elif role == "assistant":
-                                xray_msgs.append({"role": "assistant", "content": mc[:20000]})
+                                entry: dict[str, Any] = {"role": "assistant", "content": mc[:20000]}
+                                if m.get("tool_calls"):
+                                    entry["tool_calls"] = [
+                                        {"name": tc["function"]["name"], "arguments": tc["function"].get("arguments", "")}
+                                        for tc in m["tool_calls"]
+                                    ]
+                                xray_msgs.append(entry)
                             elif role == "tool":
-                                xray_msgs.append({"role": "tool", "content": mc[:20000]})
+                                xray_msgs.append({
+                                    "role": "tool",
+                                    "tool_call_id": m.get("tool_call_id", ""),
+                                    "name": m.get("name", ""),
+                                    "content": mc[:20000],
+                                })
                         if xray_msgs:
                             req_data["messages"] = xray_msgs
                     await self.observer.emit(
@@ -277,11 +288,14 @@ class AgentLoop:
                     if response.usage:
                         usage_dict = {"prompt_tokens": response.usage.prompt_tokens, "completion_tokens": response.usage.completion_tokens, "total_tokens": response.usage.total_tokens}
                         total_tokens += response.usage.total_tokens or 0
-                    tool_call_names = [tc.name for tc in response.tool_calls] if response.has_tool_calls else []
+                    tool_calls_data: list[dict[str, Any]] = []
+                    if response.has_tool_calls:
+                        for tc in response.tool_calls:
+                            tool_calls_data.append({"name": tc.name, "arguments": tc.arguments})
                     resp_data: dict[str, Any] = {
                         "content": (response.content or "")[:20000],
                         "content_preview": (response.content or "")[:200],
-                        "tool_calls": tool_call_names,
+                        "tool_calls": tool_calls_data,
                         "usage": usage_dict,
                         "finish_reason": response.finish_reason,
                     }

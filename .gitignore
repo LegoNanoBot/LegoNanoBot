@@ -26,4 +26,6 @@ nano.*.save
 .idea/
 .vscode/
 .DS_Store
+logs/
+pids/
 

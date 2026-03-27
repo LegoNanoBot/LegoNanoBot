@@ -27,7 +27,11 @@
         {% elif event_type == 'llm_request' %}
         LLM request{% if event_data.get('model') %} to {{ event_data.model }}{% endif %}
         {% elif event_type == 'llm_response' %}
+        {% if event_data.get('tool_calls') %}
+        LLM → Tool call: {{ event_data.get('tool_calls') | map(attribute='name') | join(', ') if event_data.get('tool_calls') is iterable and event_data.get('tool_calls')[0] is mapping else event_data.get('tool_calls') | join(', ') }}
+        {% else %}
         LLM response ({{ event_data.get('usage', {}).get('total_tokens', 0) }} tokens)
+        {% endif %}
         {% elif event_type == 'tool_call_start' %}
         Tool: {{ event_data.get('tool_name', 'unknown') }}
         {% elif event_type == 'tool_call_end' %}
