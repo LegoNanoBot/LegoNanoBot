@@ -23,6 +23,7 @@
 
 - 活跃规划：当前文件
 - 文档索引：[docs/supervisor/README.md](docs/supervisor/README.md)
+- 部署说明：[docs/supervisor/deployment.md](docs/supervisor/deployment.md)
 - 已完成归档：
   - [Phase 0 Release Note](docs/supervisor/release-notes/phase-0-mvp.md)
   - [Phase 1 Release Note](docs/supervisor/release-notes/phase-1-production-hardening.md)

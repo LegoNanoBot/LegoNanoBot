@@ -1460,10 +1460,10 @@ The supervisor exposes a REST API at `http://127.0.0.1:9200/api/v1/supervisor/` 
 
 ```bash
 # Worker 1
-nanobot worker --supervisor-url http://127.0.0.1:9200 --name worker-1
+nanobot worker --supervisor http://127.0.0.1:9200 --name worker-1
 
 # Worker 2 (in another terminal)
-nanobot worker --supervisor-url http://127.0.0.1:9200 --name worker-2
+nanobot worker --supervisor http://127.0.0.1:9200 --name worker-2
 ```
 
 Workers automatically register, poll for pending tasks, execute them, and report results.

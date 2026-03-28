@@ -8,6 +8,10 @@
   - 保留尚未完成的 Phase、优先级矩阵、实施路线。
   - 适合作为当前执行入口。
 
+- [部署说明](deployment.md)
+  - 说明当前代码状态下 supervisor、worker、gateway、channel 的正确启动顺序。
+  - 适合排查“为什么 API 可用但 channel 不可用”这类问题。
+
 - [Phase 0 Release Note](release-notes/phase-0-mvp.md)
   - 记录 MVP 验证阶段的交付、测试、设计决策与历史快照。
 
