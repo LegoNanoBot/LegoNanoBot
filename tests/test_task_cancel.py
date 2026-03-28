@@ -125,6 +125,26 @@ class TestDispatch:
         await asyncio.gather(t1, t2)
         assert order == ["start-a", "end-a", "start-b", "end-b"]
 
+    @pytest.mark.asyncio
+    async def test_dispatch_uses_routing_strategy_before_local_processing(self):
+        from nanobot.bus.events import InboundMessage, OutboundMessage
+
+        loop, bus = _make_loop()
+        msg = InboundMessage(channel="test", sender_id="u1", chat_id="c1", content="/delegate test")
+
+        class _FakeRouting:
+            async def route(self, _msg):
+                return OutboundMessage(channel="test", chat_id="c1", content="delegated")
+
+        loop.routing_strategy = _FakeRouting()
+        loop._process_message = AsyncMock(return_value=None)
+
+        await loop._dispatch(msg)
+
+        out = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
+        assert out.content == "delegated"
+        loop._process_message.assert_not_awaited()
+
 
 class TestSubagentCancellation:
     @pytest.mark.asyncio

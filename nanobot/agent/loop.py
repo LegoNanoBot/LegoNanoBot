@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from nanobot.agent.memory import MemoryStore
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
     from nanobot.cron.service import CronService
+    from nanobot.supervisor.routing import RoutingStrategy
     from nanobot.xray.observer import XRayObserver
 
 
@@ -68,6 +69,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         memory_store: MemoryStore | None = None,
+        routing_strategy: RoutingStrategy | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, WebSearchConfig
 
@@ -83,6 +85,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.routing_strategy = routing_strategy
 
         self.context = ContextBuilder(workspace, memory_store=memory_store)
         self.sessions = session_manager or SessionManager(workspace)
@@ -442,6 +445,21 @@ class AgentLoop:
                 logger.debug("xray emit failed for message_in", exc_info=True)
         async with self._processing_lock:
             try:
+                if self.routing_strategy is not None:
+                    delegated = await self.routing_strategy.route(msg)
+                    if delegated is not None:
+                        if self.observer:
+                            try:
+                                await self.observer.emit(
+                                    run_id=run_id,
+                                    event_type=EventType.MESSAGE_OUT,
+                                    data={"channel": delegated.channel, "chat_id": delegated.chat_id, "content_preview": delegated.content[:200] if delegated.content else ""}
+                                )
+                            except Exception:
+                                logger.debug("xray emit failed for delegated message_out", exc_info=True)
+                        await self.bus.publish_outbound(delegated)
+                        return
+
                 response = await self._process_message(msg, run_id=run_id)
                 if response is not None:
                     if self.observer:

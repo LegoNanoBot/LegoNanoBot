@@ -346,6 +346,30 @@ def _make_memory_store(config: Config):
     return MemoryStore(config.workspace_path, backend=backend)
 
 
+def _make_supervisor_routing_strategy(config: Config, provider) -> object | None:
+    """Create Phase 3 routing strategy when supervisor delegation is enabled."""
+    if not config.supervisor.enabled:
+        return None
+
+    from nanobot.supervisor.routing import (
+        CompositeRoutingStrategy,
+        ComplexityRoutingStrategy,
+        KeywordRoutingStrategy,
+        SupervisorTaskClient,
+    )
+
+    base_url = f"http://{config.supervisor.host}:{config.supervisor.port}"
+    client = SupervisorTaskClient(base_url=base_url)
+    model = config.agents.defaults.model or provider.get_default_model()
+
+    return CompositeRoutingStrategy(
+        strategies=[
+            KeywordRoutingStrategy(client=client, provider=provider, model=model),
+            ComplexityRoutingStrategy(client=client, provider=provider, model=model),
+        ]
+    )
+
+
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
     """Load config and optionally override the active workspace."""
     from nanobot.config.loader import load_config, set_config_path
@@ -412,6 +436,7 @@ def gateway(
     validate_provider_plugins(config)
     provider = _make_provider(config)
     memory_store = _make_memory_store(config)
+    routing_strategy = _make_supervisor_routing_strategy(config, provider)
     session_manager = SessionManager(config.workspace_path)
 
     # Create cron service first (callback set after agent creation)
@@ -435,6 +460,7 @@ def gateway(
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
         memory_store=memory_store,
+        routing_strategy=routing_strategy,
     )
 
     # Set cron callback (needs agent)
@@ -693,6 +719,7 @@ def agent(
     bus = MessageBus()
     provider = _make_provider(config)
     memory_store = _make_memory_store(config)
+    routing_strategy = _make_supervisor_routing_strategy(config, provider)
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
@@ -718,6 +745,7 @@ def agent(
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
         memory_store=memory_store,
+        routing_strategy=routing_strategy,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on

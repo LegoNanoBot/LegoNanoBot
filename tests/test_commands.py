@@ -257,6 +257,15 @@ def test_agent_uses_default_config_when_no_workspace_or_config_flags(mock_agent_
     mock_agent_runtime["print_response"].assert_called_once_with("mock-response", render_markdown=True)
 
 
+def test_agent_enables_supervisor_routing_when_supervisor_enabled(mock_agent_runtime):
+    mock_agent_runtime["config"].supervisor.enabled = True
+
+    result = runner.invoke(app, ["agent", "-m", "hello"])
+
+    assert result.exit_code == 0
+    assert mock_agent_runtime["agent_loop_cls"].call_args.kwargs["routing_strategy"] is not None
+
+
 def test_agent_uses_explicit_config_path(mock_agent_runtime, tmp_path: Path):
     config_path = tmp_path / "agent-config.json"
     config_path.write_text("{}")

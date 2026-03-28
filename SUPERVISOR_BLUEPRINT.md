@@ -171,16 +171,16 @@
 **问题**：目前所有聊天消息都走 AgentLoop 本地处理，无法路由到 supervisor。
 
 **实现**：
-- [ ] 定义路由策略接口：
+- [x] 定义路由策略接口：
   ```python
   class RoutingStrategy(ABC):
       async def should_delegate(self, message: InboundMessage) -> bool
       async def create_task(self, message: InboundMessage) -> Task
   ```
-- [ ] 实现 `KeywordRoutingStrategy`：通过关键词（如 `/delegate`、`/plan`）触发
-- [ ] 实现 `ComplexityRoutingStrategy`：通过 LLM 评估消息复杂度决定是否委派
-- [ ] 在 `AgentLoop._dispatch()` 中注入路由决策点
-- [ ] 测试：路由策略匹配与降级
+- [x] 实现 `KeywordRoutingStrategy`：通过关键词（如 `/delegate`、`/plan`）触发
+- [x] 实现 `ComplexityRoutingStrategy`：通过 LLM 评估消息复杂度决定是否委派
+- [x] 在 `AgentLoop._dispatch()` 中注入路由决策点
+- [x] 测试：路由策略匹配与降级
 
 **验收标准**：用户发送 `/plan 重构认证模块` → supervisor 自动创建计划 → worker 分步执行 → 结果回传。
 
