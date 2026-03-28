@@ -1364,12 +1364,14 @@ def supervisor(
     host: str | None = typer.Option(None, "--host", help="Supervisor API bind address"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    db_path: str | None = typer.Option(None, "--db", help="Supervisor state database path"),
     heartbeat_timeout: float | None = typer.Option(None, "--heartbeat-timeout", help="Worker heartbeat timeout (seconds)"),
     watchdog_interval: float | None = typer.Option(None, "--watchdog-interval", help="Watchdog scan interval (seconds)"),
 ):
     """Start the supervisor node (control plane for distributed workers)."""
     from nanobot.supervisor.app import create_supervisor_app
     from nanobot.supervisor.registry import WorkerRegistry
+    from nanobot.supervisor.store import SQLiteRegistryStore
     from nanobot.supervisor.watchdog import WatchdogService
 
     cfg = _load_runtime_config(config, workspace)
@@ -1387,6 +1389,7 @@ def supervisor(
         if watchdog_interval is not None
         else cfg.supervisor.watchdog_interval_s
     )
+    resolved_db_path = str((cfg.workspace_path / (db_path or cfg.supervisor.db_path)).resolve())
 
     console.print(f"{__logo__} Starting supervisor on {resolved_host}:{resolved_port}...")
 
@@ -1403,7 +1406,7 @@ def supervisor(
 
                 db_path = str(cfg.workspace_path / cfg.xray.db_path)
                 xray_store = SQLiteEventStore(db_path, max_runs=cfg.xray.retain_runs)
-                asyncio.get_event_loop().run_until_complete(xray_store.init())
+                asyncio.run(xray_store.init())
 
                 sse_hub = SSEHub()
                 collector = EventCollector()
@@ -1423,12 +1426,28 @@ def supervisor(
         except Exception as e:
             console.print(f"[yellow]X-Ray init failed: {e}[/yellow]")
 
+    registry_store = None
+    if SQLiteRegistryStore is None:
+        console.print("[yellow]Supervisor state store unavailable: install xray extras for SQLite persistence. Falling back to memory.[/yellow]")
+    else:
+        try:
+            registry_store = SQLiteRegistryStore(resolved_db_path)
+            asyncio.run(registry_store.init())
+            console.print(f"[green]✓[/green] Supervisor state store at {resolved_db_path}")
+        except Exception as e:
+            registry_store = None
+            console.print(f"[yellow]Supervisor state store init failed: {e}. Falling back to memory.[/yellow]")
+
     registry = WorkerRegistry(
         heartbeat_timeout_s=resolved_heartbeat_timeout,
         task_default_timeout_s=cfg.supervisor.task_default_timeout_s,
         task_default_max_iterations=cfg.supervisor.task_default_max_iterations,
+        store=registry_store,
         collector=collector,
     )
+
+    if registry_store is not None:
+        asyncio.run(registry.restore())
 
     supervisor_app = create_supervisor_app(
         worker_registry=registry,
@@ -1453,6 +1472,8 @@ def supervisor(
             await server.serve()
         finally:
             watchdog.stop()
+            if registry_store is not None:
+                await registry_store.close()
             if "event_store" in xray_kwargs:
                 await xray_kwargs["event_store"].close()
 

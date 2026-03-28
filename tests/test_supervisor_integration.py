@@ -370,6 +370,44 @@ async def test_task_failure_propagates(registry, supervisor_client_factory, tmp_
 
 
 @pytest.mark.asyncio
+async def test_task_retry_moves_to_different_worker(registry, supervisor_client_factory, tmp_path):
+    task = Task(task_id="task-retry", instruction="Retry me", max_retries=1)
+    await registry.create_task(task)
+
+    standby_client = supervisor_client_factory("w-retry-2")
+    await standby_client.register("test-w-retry-2")
+
+    failing_provider = MockProvider(responses=[RuntimeError("temporary failure")])
+    worker_one = _make_runner(
+        worker_id="w-retry-1",
+        workspace=tmp_path,
+        provider=failing_provider,
+        supervisor_client=supervisor_client_factory("w-retry-1"),
+    )
+    await _run_worker_until_idle(worker_one)
+
+    after_first_attempt = await registry.get_task("task-retry")
+    assert after_first_attempt is not None
+    assert after_first_attempt.status == TaskStatus.PENDING
+    assert after_first_attempt.retry_count == 1
+    assert after_first_attempt.last_failed_worker_id == "w-retry-1"
+
+    second_worker = _make_runner(
+        worker_id="w-retry-2",
+        workspace=tmp_path,
+        provider=MockProvider(responses=["Recovered"]),
+        supervisor_client=standby_client,
+    )
+    await _run_worker_until_idle(second_worker)
+
+    final_task = await registry.get_task("task-retry")
+    assert final_task is not None
+    assert final_task.status == TaskStatus.COMPLETED
+    assert final_task.result == "Recovered"
+    assert final_task.last_failed_worker_id is None
+
+
+@pytest.mark.asyncio
 async def test_task_timeout_propagates(registry, supervisor_client_factory, tmp_path):
     """A long-running LLM call should time out and mark the task FAILED."""
 

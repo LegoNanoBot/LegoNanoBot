@@ -86,7 +86,7 @@
 **问题**：当前注册表纯内存，supervisor 进程重启 = 所有状态丢失。
 
 **实现**：
-- [ ] 定义 `RegistryStore` 抽象接口：
+- [x] 定义 `RegistryStore` 抽象接口：
   ```python
   class RegistryStore(ABC):
       async def save_worker(self, worker: WorkerInfo) -> None
@@ -98,11 +98,11 @@
       async def delete_worker(self, worker_id: str) -> None
       # ...
   ```
-- [ ] 实现 `SQLiteRegistryStore`（复用 X-Ray 的 SQLite 模式）
-- [ ] `WorkerRegistry` 接受 `store: RegistryStore` 参数
-- [ ] 启动时从 store 加载状态，关键操作后写入 store
-- [ ] 保持内存态 dict 作为热缓存，store 作为持久层
-- [ ] 测试：重启后状态恢复、并发写入安全
+- [x] 实现 `SQLiteRegistryStore`（复用 X-Ray 的 SQLite 模式）
+- [x] `WorkerRegistry` 接受 `store: RegistryStore` 参数
+- [x] 启动时从 store 加载状态，关键操作后写入 store
+- [x] 保持内存态 dict 作为热缓存，store 作为持久层
+- [x] 测试：重启后状态恢复、并发写入安全
 
 **验收标准**：supervisor 重启后，未完成的任务和计划自动恢复。
 
@@ -113,13 +113,13 @@
 **问题**：任务失败后直接标记 FAILED，无重试机会。
 
 **实现**：
-- [ ] `Task` 模型添加 `retry_count: int = 0` 和 `max_retries: int = 0`
-- [ ] `report_result(status=FAILED)` 时检查 `retry_count < max_retries`：
+- [x] `Task` 模型添加 `retry_count: int = 0` 和 `max_retries: int = 0`
+- [x] `report_result(status=FAILED)` 时检查 `retry_count < max_retries`：
   - 是 → 状态回 PENDING + `retry_count += 1`
   - 否 → 最终 FAILED
-- [ ] 重试时自动选择不同 worker（避免重复故障）
-- [ ] 计划步骤级别的重试策略
-- [ ] 测试：重试次数耗尽、重试成功、重试分配到不同 worker
+- [x] 重试时自动选择不同 worker（避免重复故障）
+- [x] 计划步骤级别的重试策略
+- [x] 测试：重试次数耗尽、重试成功、重试分配到不同 worker
 
 **验收标准**：瞬时故障（LLM 超时、网络抖动）可自动重试。
 

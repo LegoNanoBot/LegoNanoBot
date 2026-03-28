@@ -59,6 +59,9 @@ def test_task_defaults():
     assert t.plan_id is None
     assert len(t.task_id) > 0
     assert t.max_iterations == 30
+    assert t.retry_count == 0
+    assert t.max_retries == 0
+    assert t.last_failed_worker_id is None
     assert t.timeout_s == 600.0
     assert t.progress == []
 
@@ -72,6 +75,7 @@ def test_plan_creation():
     assert p.status == PlanStatus.DRAFT
     assert len(p.steps) == 2
     assert p.steps[1].depends_on == [0]
+    assert p.steps[0].max_retries == 0
     assert p.steps[0].task_id is None
 
 

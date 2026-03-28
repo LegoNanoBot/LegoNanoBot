@@ -22,6 +22,7 @@ class CreateTaskBody(BaseModel):
     plan_id: str | None = None
     step_index: int | None = None
     max_iterations: int | None = None
+    max_retries: int = 0
     timeout_s: float | None = None
     origin_channel: str = "cli"
     origin_chat_id: str = "direct"
@@ -58,6 +59,9 @@ def _task_to_dict(t: Any) -> dict[str, Any]:
         "status": t.status.value if hasattr(t.status, "value") else t.status,
         "worker_id": t.worker_id,
         "assigned_at": t.assigned_at,
+        "retry_count": t.retry_count,
+        "max_retries": t.max_retries,
+        "last_failed_worker_id": t.last_failed_worker_id,
         "progress": [
             {
                 "timestamp": p.timestamp,
@@ -94,6 +98,7 @@ async def create_task(body: CreateTaskBody, request: Request) -> dict[str, Any]:
         plan_id=body.plan_id,
         step_index=body.step_index,
         max_iterations=body.max_iterations if body.max_iterations is not None else registry.task_default_max_iterations,
+        max_retries=body.max_retries,
         timeout_s=body.timeout_s if body.timeout_s is not None else registry.task_default_timeout_s,
         origin_channel=body.origin_channel,
         origin_chat_id=body.origin_chat_id,

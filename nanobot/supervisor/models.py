@@ -82,6 +82,9 @@ class Task:
     status: TaskStatus = TaskStatus.PENDING
     worker_id: str | None = None
     assigned_at: float | None = None
+    retry_count: int = 0
+    max_retries: int = 0
+    last_failed_worker_id: str | None = None
 
     # Progress
     progress: list[TaskProgress] = field(default_factory=list)
@@ -124,6 +127,7 @@ class PlanStep:
     instruction: str
     label: str = ""
     depends_on: list[int] = field(default_factory=list)
+    max_retries: int = 0
     task_id: str | None = None    # populated when a Task is created
     status: TaskStatus = TaskStatus.PENDING
     result_summary: str | None = None

@@ -513,6 +513,7 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
     config.supervisor.watchdog_interval_s = 11.0
     config.supervisor.task_default_timeout_s = 222.0
     config.supervisor.task_default_max_iterations = 17
+    config.supervisor.db_path = ".nanobot/custom-supervisor.db"
     seen: dict[str, object] = {}
 
     monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
@@ -522,6 +523,20 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
     class _FakeRegistry:
         def __init__(self, **kwargs) -> None:
             seen["registry_kwargs"] = kwargs
+
+        async def restore(self) -> None:
+            seen["registry_restore_called"] = True
+
+    class _FakeStore:
+        def __init__(self, db_path: str) -> None:
+            seen["db_path"] = db_path
+            seen["store"] = self
+
+        async def init(self) -> None:
+            seen["store_init_called"] = True
+
+        async def close(self) -> None:
+            seen["store_close_called"] = True
 
     class _FakeWatchdog:
         def __init__(self, registry, check_interval_s: float) -> None:
@@ -546,6 +561,7 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
             return None
 
     monkeypatch.setattr("nanobot.supervisor.registry.WorkerRegistry", _FakeRegistry)
+    monkeypatch.setattr("nanobot.supervisor.store.SQLiteRegistryStore", _FakeStore)
     monkeypatch.setattr("nanobot.supervisor.watchdog.WatchdogService", _FakeWatchdog)
     monkeypatch.setattr("nanobot.supervisor.app.create_supervisor_app", lambda **kwargs: object())
     monkeypatch.setattr("uvicorn.Config", _FakeUvicornConfig)
@@ -558,10 +574,15 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
     assert seen["uvicorn_host"] == "0.0.0.0"
     assert seen["uvicorn_port"] == 9301
     assert seen["watchdog_interval"] == 11.0
+    assert seen["db_path"] == str((config.workspace_path / config.supervisor.db_path).resolve())
+    assert seen["store_init_called"] is True
+    assert seen["registry_restore_called"] is True
+    assert seen["store_close_called"] is True
     assert seen["registry_kwargs"] == {
         "heartbeat_timeout_s": 45.0,
         "task_default_timeout_s": 222.0,
         "task_default_max_iterations": 17,
+        "store": seen["store"],
         "collector": None,
     }
 
@@ -587,6 +608,20 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
         def __init__(self, **kwargs) -> None:
             seen["registry_kwargs"] = kwargs
 
+        async def restore(self) -> None:
+            seen["registry_restore_called"] = True
+
+    class _FakeStore:
+        def __init__(self, db_path: str) -> None:
+            seen["db_path"] = db_path
+            seen["store"] = self
+
+        async def init(self) -> None:
+            seen["store_init_called"] = True
+
+        async def close(self) -> None:
+            seen["store_close_called"] = True
+
     class _FakeWatchdog:
         def __init__(self, registry, check_interval_s: float) -> None:
             seen["watchdog_interval"] = check_interval_s
@@ -610,6 +645,7 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
             return None
 
     monkeypatch.setattr("nanobot.supervisor.registry.WorkerRegistry", _FakeRegistry)
+    monkeypatch.setattr("nanobot.supervisor.store.SQLiteRegistryStore", _FakeStore)
     monkeypatch.setattr("nanobot.supervisor.watchdog.WatchdogService", _FakeWatchdog)
     monkeypatch.setattr("nanobot.supervisor.app.create_supervisor_app", lambda **kwargs: object())
     monkeypatch.setattr("uvicorn.Config", _FakeUvicornConfig)
@@ -625,6 +661,8 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
             "0.0.0.0",
             "--port",
             "9401",
+            "--db",
+            "runtime/supervisor.db",
             "--heartbeat-timeout",
             "55",
             "--watchdog-interval",
@@ -637,4 +675,9 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
     assert seen["uvicorn_host"] == "0.0.0.0"
     assert seen["uvicorn_port"] == 9401
     assert seen["watchdog_interval"] == 13.0
+    assert seen["db_path"] == str((config.workspace_path / "runtime/supervisor.db").resolve())
+    assert seen["store_init_called"] is True
+    assert seen["registry_restore_called"] is True
+    assert seen["store_close_called"] is True
     assert seen["registry_kwargs"]["heartbeat_timeout_s"] == 55.0
+    assert seen["registry_kwargs"]["store"] == seen["store"]

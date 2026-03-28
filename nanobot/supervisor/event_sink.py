@@ -22,6 +22,7 @@ class SupervisorEventType:
     TASK_CREATED = "task_created"
     TASK_ASSIGNED = "task_assigned"
     TASK_PROGRESS = "task_progress"
+    TASK_RETRIED = "task_retried"
     TASK_COMPLETED = "task_completed"
     TASK_FAILED = "task_failed"
     TASK_CANCELLED = "task_cancelled"

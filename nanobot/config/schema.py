@@ -497,6 +497,7 @@ class SupervisorConfig(Base):
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 9200
+    db_path: str = ".nanobot/supervisor.db"
     heartbeat_timeout_s: float = 120.0
     watchdog_interval_s: float = 30.0
     task_default_timeout_s: float = 600.0

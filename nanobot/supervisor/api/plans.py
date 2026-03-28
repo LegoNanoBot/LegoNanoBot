@@ -20,6 +20,7 @@ class PlanStepBody(BaseModel):
     instruction: str
     label: str = ""
     depends_on: list[int] = []
+    max_retries: int = 0
 
 
 class CreatePlanBody(BaseModel):
@@ -43,6 +44,7 @@ def _plan_to_dict(p: Any) -> dict[str, Any]:
                 "instruction": s.instruction,
                 "label": s.label,
                 "depends_on": s.depends_on,
+                "max_retries": s.max_retries,
                 "task_id": s.task_id,
                 "status": s.status.value if hasattr(s.status, "value") else s.status,
                 "result_summary": s.result_summary,
@@ -72,6 +74,7 @@ async def create_plan(body: CreatePlanBody, request: Request) -> dict[str, Any]:
             instruction=s.instruction,
             label=s.label,
             depends_on=list(s.depends_on),
+            max_retries=s.max_retries,
         )
         for s in body.steps
     ]

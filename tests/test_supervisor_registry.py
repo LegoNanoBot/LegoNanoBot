@@ -194,6 +194,130 @@ async def test_report_result(registry, _reg_worker):
 
 
 @pytest.mark.asyncio
+async def test_report_failed_result_requeues_task_with_retry(registry, _reg_worker):
+    await _reg_worker()
+    task = Task(instruction="do work", max_retries=2)
+    await registry.create_task(task)
+    await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+
+    updated = await registry.report_result(
+        TaskResultReport(
+            task_id=task.task_id,
+            worker_id="w1",
+            status=TaskStatus.FAILED,
+            error="transient",
+        )
+    )
+
+    assert updated is not None
+    assert updated.status == TaskStatus.PENDING
+    assert updated.retry_count == 1
+    assert updated.worker_id is None
+    assert updated.last_failed_worker_id == "w1"
+
+    w = await registry.get_worker("w1")
+    assert w is not None
+    assert w.status == WorkerStatus.ONLINE
+    assert w.current_task_id is None
+
+
+@pytest.mark.asyncio
+async def test_retry_prefers_different_worker_when_available(registry):
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w2", name="worker-2"))
+    task = Task(instruction="do work", max_retries=2)
+    await registry.create_task(task)
+
+    claimed = await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+    assert claimed is not None
+
+    await registry.report_result(
+        TaskResultReport(
+            task_id=task.task_id,
+            worker_id="w1",
+            status=TaskStatus.FAILED,
+            error="transient",
+        )
+    )
+
+    same_worker_claim = await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+    assert same_worker_claim is None
+
+    other_worker_claim = await registry.claim_task(TaskClaimRequest(worker_id="w2"))
+    assert other_worker_claim is not None
+    assert other_worker_claim.task_id == task.task_id
+    assert other_worker_claim.worker_id == "w2"
+
+
+@pytest.mark.asyncio
+async def test_retry_falls_back_to_same_worker_when_no_alternative(registry, _reg_worker):
+    await _reg_worker()
+    task = Task(instruction="do work", max_retries=1)
+    await registry.create_task(task)
+    await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+
+    await registry.report_result(
+        TaskResultReport(
+            task_id=task.task_id,
+            worker_id="w1",
+            status=TaskStatus.FAILED,
+            error="transient",
+        )
+    )
+
+    reclaimed = await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+    assert reclaimed is not None
+    assert reclaimed.task_id == task.task_id
+
+
+@pytest.mark.asyncio
+async def test_plan_step_max_retries_propagates_to_created_task(registry):
+    plan = Plan(
+        title="Retry plan",
+        goal="propagate retries",
+        steps=[PlanStep(index=0, instruction="step 0", max_retries=3)],
+    )
+    await registry.create_plan(plan)
+
+    approved = await registry.approve_plan(plan.plan_id)
+    assert approved is not None
+    task = await registry.get_task(approved.steps[0].task_id)
+    assert task is not None
+    assert task.max_retries == 3
+
+
+@pytest.mark.asyncio
+async def test_scan_stale_tasks_requeues_when_retry_budget_remaining(registry, _reg_worker):
+    import time
+
+    await _reg_worker()
+    task = Task(
+        instruction="test",
+        status=TaskStatus.RUNNING,
+        worker_id="w1",
+        assigned_at=time.time() - 10,
+        timeout_s=1.0,
+        max_retries=1,
+    )
+    await registry.create_task(task)
+
+    worker = await registry.get_worker("w1")
+    assert worker is not None
+    worker.status = WorkerStatus.BUSY
+    worker.current_task_id = task.task_id
+
+    stale = await registry.scan_stale_tasks()
+
+    assert len(stale) == 1
+    updated_task = await registry.get_task(task.task_id)
+    assert updated_task is not None
+    assert updated_task.status == TaskStatus.PENDING
+    assert updated_task.retry_count == 1
+    assert updated_task.worker_id is None
+    assert updated_task.last_failed_worker_id == "w1"
+
+
+@pytest.mark.asyncio
 async def test_cancel_task(registry, _reg_worker):
     await _reg_worker()
     task = Task(instruction="do work")
@@ -408,6 +532,63 @@ async def test_scan_stale_tasks_fails_plan(registry, _reg_worker):
 
 
 @pytest.mark.asyncio
+async def test_registry_restore_requeues_inflight_tasks(tmp_path):
+    pytest.importorskip("aiosqlite")
+
+    from nanobot.supervisor.store import SQLiteRegistryStore
+
+    db_path = tmp_path / "supervisor.db"
+
+    store = SQLiteRegistryStore(str(db_path))
+    await store.init()
+    registry = WorkerRegistry(heartbeat_timeout_s=5.0, store=store)
+
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    plan = Plan(
+        title="Persistent plan",
+        goal="survive restart",
+        steps=[PlanStep(index=0, instruction="step 0")],
+    )
+    await registry.create_plan(plan)
+    await registry.approve_plan(plan.plan_id)
+
+    claimed = await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+    assert claimed is not None
+    await registry.report_progress(
+        TaskProgressReport(
+            task_id=claimed.task_id,
+            worker_id="w1",
+            iteration=1,
+            message="working",
+        )
+    )
+    await store.close()
+
+    restored_store = SQLiteRegistryStore(str(db_path))
+    await restored_store.init()
+    restored_registry = WorkerRegistry(heartbeat_timeout_s=5.0, store=restored_store)
+    await restored_registry.restore()
+
+    restored_task = await restored_registry.get_task(claimed.task_id)
+    assert restored_task is not None
+    assert restored_task.status == TaskStatus.PENDING
+    assert restored_task.worker_id is None
+    assert restored_task.progress[0].message == "working"
+
+    restored_worker = await restored_registry.get_worker("w1")
+    assert restored_worker is not None
+    assert restored_worker.status == WorkerStatus.OFFLINE
+    assert restored_worker.current_task_id is None
+
+    restored_plan = await restored_registry.get_plan(plan.plan_id)
+    assert restored_plan is not None
+    assert restored_plan.status == PlanStatus.EXECUTING
+    assert restored_plan.steps[0].task_id == claimed.task_id
+
+    await restored_store.close()
+
+
+@pytest.mark.asyncio
 async def test_registry_emits_worker_events(registry_with_events, event_collector):
     req = WorkerRegisterRequest(worker_id="w1", name="worker-1")
     await registry_with_events.register_worker(req)
@@ -441,6 +622,21 @@ async def test_registry_emits_task_events(registry_with_events, event_collector)
     assert SupervisorEventType.TASK_ASSIGNED in event_types
     assert SupervisorEventType.TASK_PROGRESS in event_types
     assert SupervisorEventType.TASK_COMPLETED in event_types
+
+
+@pytest.mark.asyncio
+async def test_registry_emits_task_retried_event(registry_with_events, event_collector):
+    await registry_with_events.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    task = Task(instruction="do work", max_retries=1)
+    await registry_with_events.create_task(task)
+    await registry_with_events.claim_task(TaskClaimRequest(worker_id="w1"))
+
+    await registry_with_events.report_result(
+        TaskResultReport(task_id=task.task_id, worker_id="w1", status=TaskStatus.FAILED, error="transient"),
+    )
+
+    event_types = [e["event_type"] for e in event_collector.events]
+    assert SupervisorEventType.TASK_RETRIED in event_types
 
 
 @pytest.mark.asyncio

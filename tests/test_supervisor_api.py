@@ -102,12 +102,15 @@ def test_create_task(client):
     resp = client.post("/api/v1/supervisor/tasks", json={
         "instruction": "write tests",
         "label": "testing",
+        "max_retries": 2,
     })
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
     assert data["task"]["instruction"] == "write tests"
     assert data["task"]["status"] == "pending"
+    assert data["task"]["max_retries"] == 2
+    assert data["task"]["retry_count"] == 0
 
 
 def test_create_task_uses_registry_defaults_when_timeout_and_iterations_omitted():
@@ -215,6 +218,28 @@ def test_report_result(client):
     assert resp.json()["task"]["result"] == "all done"
 
 
+def test_report_failed_result_requeues_when_retry_budget_remains(client):
+    client.post("/api/v1/supervisor/workers/register", json={
+        "worker_id": "w1", "name": "test",
+    })
+    create_resp = client.post("/api/v1/supervisor/tasks", json={
+        "instruction": "do stuff",
+        "max_retries": 1,
+    })
+    task_id = create_resp.json()["task"]["task_id"]
+    client.post("/api/v1/supervisor/tasks/claim", json={"worker_id": "w1"})
+
+    resp = client.post(f"/api/v1/supervisor/tasks/{task_id}/result", json={
+        "worker_id": "w1",
+        "status": "failed",
+        "error": "transient",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["task"]["status"] == "pending"
+    assert resp.json()["task"]["retry_count"] == 1
+    assert resp.json()["task"]["last_failed_worker_id"] == "w1"
+
+
 def test_cancel_task(client):
     create_resp = client.post("/api/v1/supervisor/tasks", json={
         "instruction": "do stuff",
@@ -269,7 +294,7 @@ def test_create_plan(client):
         "title": "Test Plan",
         "goal": "test",
         "steps": [
-            {"index": 0, "instruction": "step 0", "label": "first"},
+            {"index": 0, "instruction": "step 0", "label": "first", "max_retries": 2},
             {"index": 1, "instruction": "step 1", "depends_on": [0]},
         ],
     })
@@ -278,6 +303,7 @@ def test_create_plan(client):
     assert data["ok"] is True
     assert data["plan"]["status"] == "draft"
     assert len(data["plan"]["steps"]) == 2
+    assert data["plan"]["steps"][0]["max_retries"] == 2
 
 
 def test_approve_plan(client):
