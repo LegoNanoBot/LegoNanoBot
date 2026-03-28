@@ -1,6 +1,6 @@
 # Supervisor Gateway — 活跃蓝图
 
-> **当前状态**：Phase 0 与 Phase 1 已完成并归档；本文件仅保留未完成阶段的活跃规划。  
+> **当前状态**：Phase 0 到 Phase 4 已完成并归档；本文件仅保留未完成阶段的活跃规划。  
 > **设计原则**：每个 Phase 可独立交付、独立测试、独立回滚。后续 Phase 依赖前置 Phase 但不破坏已有功能。
 
 ---
@@ -9,7 +9,6 @@
 
 - [文档导航](#文档导航)
 - [架构全景](#架构全景)
-- [Phase 4 — Agent Loop 集成](#phase-4--agent-loop-集成)
 - [Phase 5 — 记忆与上下文共享](#phase-5--记忆与上下文共享)
 - [Phase 6 — 高级调度](#phase-6--高级调度)
 - [Phase 7 — 计划智能](#phase-7--计划智能)
@@ -29,6 +28,7 @@
   - [Phase 1 Release Note](docs/supervisor/release-notes/phase-1-production-hardening.md)
   - [Phase 2 Release Note](docs/supervisor/release-notes/phase-2-state-persistence-and-recovery.md)
   - [Phase 3 Release Note](docs/supervisor/release-notes/phase-3-channel-integration.md)
+  - [Phase 4 Release Note](docs/supervisor/release-notes/phase-4-agent-loop-integration.md)
 
 ## 已完成阶段摘要
 
@@ -47,6 +47,10 @@
 ### Phase 3 — 通道集成（双向桥接）
 
 - 已完成，详细交付与通道回传/路由/进度推送结果见 [docs/supervisor/release-notes/phase-3-channel-integration.md](docs/supervisor/release-notes/phase-3-channel-integration.md)
+
+### Phase 4 — Agent Loop 集成
+
+- 已完成，详细交付与远程委派 / 原生 subagent 集成 / 进程内 worker 结果见 [docs/supervisor/release-notes/phase-4-agent-loop-integration.md](docs/supervisor/release-notes/phase-4-agent-loop-integration.md)
 
 ---
 
@@ -80,68 +84,6 @@
 │  └────────────┘  └─────────────┘  └──────────────┘                  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Phase 4 — Agent Loop 集成
-
-**目标**：将 supervisor 委派能力无缝集成到现有 Agent Loop，让 agent 可以自然地将子任务委派给 worker pool。
-
-**前置依赖**：Phase 3
-
-### Task 4.1 — DelegateToWorkerTool
-
-**问题**：当前 `SpawnTool` 在本地创建 subagent，无法利用 worker pool。
-
-**实现**：
-- [ ] 新建 `DelegateToWorkerTool`：
-  ```python
-  class DelegateToWorkerTool(BaseTool):
-      name = "delegate_to_worker"
-      description = "Delegate a subtask to a remote worker in the supervisor pool"
-      async def execute(self, instruction: str, label: str = "") -> str:
-          # 1. 通过 SupervisorClient 创建任务
-          # 2. 轮询等待完成（或返回 task_id 供后续查询）
-          # 3. 返回结果
-  ```
-- [ ] AgentLoop 启动时检测 supervisor 是否可用，动态注册 delegate tool
-- [ ] 支持同步等待（阻塞直到结果）和异步模式（创建后继续）
-- [ ] 测试：tool 调用 → 任务创建 → worker 执行 → 结果返回
-
-**验收标准**：LLM 可在对话中自主决定是否将子任务委派给 worker pool。
-
----
-
-### Task 4.2 — SubagentManager 远程委派
-
-**问题**：`SubagentManager.spawn()` 只支持本地执行。
-
-**实现**：
-- [ ] 添加 `mode` 参数：`"local"` | `"remote"` | `"auto"`
-- [ ] `remote` 模式：
-  - 序列化 task + context
-  - 通过 SupervisorClient 提交任务
-  - 返回 task_id
-  - 后台轮询结果并回调
-- [ ] `auto` 模式：supervisor 可用时远程，否则本地降级
-- [ ] 保持 API 向后兼容
-- [ ] 测试：远程 spawn + 结果回调
-
-**验收标准**：`/spawn` 命令可以透明地委派到远程 worker。
-
----
-
-### Task 4.3 — 进程内 Worker 模式
-
-**问题**：开发/测试时需要启动多个进程太重，需要轻量级的进程内 worker。
-
-**实现**：
-- [ ] `InProcessWorker` 类：在 supervisor 进程内运行 worker loop
-- [ ] 通过 ASGITransport 直连 FastAPI app（无 HTTP 开销）
-- [ ] `supervisor` CLI 添加 `--workers N` 参数：自动启动 N 个进程内 worker
-- [ ] 测试：进程内 worker 端到端测试
-
-**验收标准**：`nanobot supervisor --workers 2` 启动 supervisor + 2 个内嵌 worker。
 
 ---
 
@@ -397,7 +339,6 @@
 |-------|--------|------|--------|----------|
 | **Phase 2 — 持久化** | 🔴 P0 | 生产部署必需 | 高 | **立即开始** |
 | **Phase 3 — 通道集成** | 🟡 P1 | 用户可见价值 | 中 | Phase 2 并行评估 |
-| **Phase 4 — Loop 集成** | 🟡 P1 | 无缝体验 | 中 | Phase 3 后 |
 | **Phase 5 — 记忆共享** | 🟡 P1 | 任务质量提升 | 高 | Phase 2 后 |
 | **Phase 6 — 高级调度** | 🟢 P2 | 效率优化 | 中 | Phase 2 后 |
 | **Phase 7 — 计划智能** | 🟢 P2 | 能力扩展 | 高 | Phase 3 后 |
@@ -412,7 +353,7 @@ Phase 0 ✅ ─┬─► Phase 1 ✅
              │
              └─► Phase 2（持久化） ─┬─► Phase 5（记忆）
                                      ├─► Phase 6（调度）
-                                     ├─► Phase 3（通道） ─► Phase 4（Loop） ─► Phase 7（计划）
+                                     ├─► Phase 3（通道） ─► Phase 7（计划）
                                      ├─► Phase 8（安全）
                                      └─► Phase 9（仪表盘）
 

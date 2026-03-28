@@ -39,6 +39,13 @@ class SupervisorClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    async def is_available(self) -> bool:
+        try:
+            response = await self._client.request("GET", "/api/v1/supervisor/tasks")
+            return response.status_code < 500
+        except Exception:
+            return False
+
     def _should_retry(self, exc: Exception) -> bool:
         if isinstance(exc, httpx.RequestError):
             return True
@@ -121,6 +128,73 @@ class SupervisorClient:
         )
         data = resp.json()
         return data.get("task")
+
+    async def create_task(
+        self,
+        *,
+        instruction: str,
+        label: str = "",
+        context: str = "",
+        plan_id: str | None = None,
+        step_index: int | None = None,
+        max_iterations: int | None = None,
+        max_retries: int = 0,
+        timeout_s: float | None = None,
+        origin_channel: str = "cli",
+        origin_chat_id: str = "direct",
+        session_key: str | None = None,
+    ) -> dict[str, Any]:
+        resp = await self._request_with_retry(
+            "POST",
+            "/api/v1/supervisor/tasks",
+            json={
+                "instruction": instruction,
+                "label": label,
+                "context": context,
+                "plan_id": plan_id,
+                "step_index": step_index,
+                "max_iterations": max_iterations,
+                "max_retries": max_retries,
+                "timeout_s": timeout_s,
+                "origin_channel": origin_channel,
+                "origin_chat_id": origin_chat_id,
+                "session_key": session_key,
+            },
+        )
+        return resp.json().get("task", {})
+
+    async def get_task(self, task_id: str) -> dict[str, Any]:
+        resp = await self._request_with_retry(
+            "GET",
+            f"/api/v1/supervisor/tasks/{task_id}",
+        )
+        return resp.json().get("task", {})
+
+    async def cancel_task(self, task_id: str) -> dict[str, Any]:
+        resp = await self._request_with_retry(
+            "POST",
+            f"/api/v1/supervisor/tasks/{task_id}/cancel",
+        )
+        return resp.json().get("task", {})
+
+    async def wait_for_task(
+        self,
+        task_id: str,
+        *,
+        poll_interval_s: float = 1.0,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        terminal_states = {"completed", "failed", "cancelled"}
+
+        while True:
+            task = await self.get_task(task_id)
+            if task.get("status") in terminal_states:
+                return task
+            if timeout_s is not None and loop.time() - start >= timeout_s:
+                raise TimeoutError(f"Timed out waiting for supervisor task {task_id}")
+            await self._sleep(poll_interval_s)
 
     async def report_progress(
         self,

@@ -20,6 +20,9 @@
 - [Phase 3 Release Note](release-notes/phase-3-channel-integration.md)
   - 记录通道回传、路由策略与实时进度推送阶段的交付与验证结果。
 
+- [Phase 4 Release Note](release-notes/phase-4-agent-loop-integration.md)
+  - 记录 Agent Loop 原生委派、远程 subagent 与进程内 worker 阶段的交付与验证结果。
+
 ## 建议用法
 
 - 看下一步要做什么：优先阅读 [活跃蓝图](../../SUPERVISOR_BLUEPRINT.md)

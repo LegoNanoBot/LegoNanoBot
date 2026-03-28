@@ -420,6 +420,7 @@ def gateway(
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
     from nanobot.session.manager import SessionManager
+    from nanobot.worker.client import SupervisorClient
 
     if verbose:
         import logging
@@ -461,6 +462,14 @@ def gateway(
         channels_config=config.channels,
         memory_store=memory_store,
         routing_strategy=routing_strategy,
+        supervisor_client=(
+            SupervisorClient(
+                base_url=f"http://{config.supervisor.host}:{config.supervisor.port}",
+                worker_id="agent-gateway",
+            )
+            if config.supervisor.enabled
+            else None
+        ),
     )
 
     # Set cron callback (needs agent)
@@ -711,6 +720,7 @@ def agent(
     from nanobot.bus.queue import MessageBus
     from nanobot.config.paths import get_cron_dir
     from nanobot.cron.service import CronService
+    from nanobot.worker.client import SupervisorClient
 
     config = _load_runtime_config(config, workspace)
     _print_deprecated_memory_window_notice(config)
@@ -746,6 +756,14 @@ def agent(
         channels_config=config.channels,
         memory_store=memory_store,
         routing_strategy=routing_strategy,
+        supervisor_client=(
+            SupervisorClient(
+                base_url=f"http://{config.supervisor.host}:{config.supervisor.port}",
+                worker_id="agent-cli",
+            )
+            if config.supervisor.enabled
+            else None
+        ),
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -1395,6 +1413,7 @@ def supervisor(
     db_path: str | None = typer.Option(None, "--db", help="Supervisor state database path"),
     heartbeat_timeout: float | None = typer.Option(None, "--heartbeat-timeout", help="Worker heartbeat timeout (seconds)"),
     watchdog_interval: float | None = typer.Option(None, "--watchdog-interval", help="Watchdog scan interval (seconds)"),
+    workers: int = typer.Option(0, "--workers", min=0, help="Start N in-process workers for development/testing"),
 ):
     """Start the supervisor node (control plane for distributed workers)."""
     from nanobot.bus.queue import MessageBus
@@ -1404,6 +1423,7 @@ def supervisor(
     from nanobot.supervisor.result_reporter import SupervisorResultReporter
     from nanobot.supervisor.store import SQLiteRegistryStore
     from nanobot.supervisor.watchdog import WatchdogService
+    from nanobot.worker.inprocess import InProcessWorker
 
     cfg = _load_runtime_config(config, workspace)
     sync_workspace_templates(cfg.workspace_path)
@@ -1489,6 +1509,7 @@ def supervisor(
         worker_registry=registry,
         **xray_kwargs,
     )
+    supervisor_url = f"http://{resolved_host}:{resolved_port}"
 
     import uvicorn
 
@@ -1503,13 +1524,41 @@ def supervisor(
     watchdog = WatchdogService(registry, check_interval_s=resolved_watchdog_interval)
 
     async def _run_supervisor():
+        inprocess_workers: list[InProcessWorker] = []
+        worker_tasks: list[asyncio.Task] = []
         await watchdog.start()
         try:
+            if workers:
+                for index in range(workers):
+                    inprocess_workers.append(
+                        InProcessWorker(
+                            app=supervisor_app,
+                            supervisor_url=supervisor_url,
+                            workspace=cfg.workspace_path,
+                            provider=_make_provider(cfg),
+                            model=cfg.agents.defaults.model,
+                            worker_id=f"inproc-{index + 1}",
+                            worker_name=f"inproc-worker-{index + 1}",
+                            max_iterations=cfg.agents.defaults.max_tool_iterations,
+                            heartbeat_interval_s=max(1.0, resolved_heartbeat_timeout / 4),
+                            web_search_config=cfg.tools.web.search,
+                            web_proxy=cfg.tools.web.proxy or None,
+                            exec_config=cfg.tools.exec,
+                            restrict_to_workspace=cfg.tools.restrict_to_workspace,
+                        )
+                    )
+                worker_tasks = [asyncio.create_task(worker.run()) for worker in inprocess_workers]
+
             await asyncio.gather(
                 server.serve(),
                 channels.start_all(),
+                *worker_tasks,
             )
         finally:
+            for worker in inprocess_workers:
+                await worker.stop()
+            if worker_tasks:
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
             watchdog.stop()
             await channels.stop_all()
             if registry_store is not None:

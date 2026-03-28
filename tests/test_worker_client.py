@@ -96,6 +96,68 @@ async def test_client_claim_task_found():
 
 
 @pytest.mark.asyncio
+async def test_client_create_task():
+    client = SupervisorClient("http://localhost:9200", "w-test")
+    mock_response = _make_mock_response({
+        "ok": True,
+        "task": {"task_id": "t-new", "instruction": "delegate"},
+    })
+
+    with patch.object(client._client, "request", AsyncMock(return_value=mock_response)) as mock_request:
+        result = await client.create_task(instruction="delegate", label="delegated")
+        assert result["task_id"] == "t-new"
+        assert mock_request.call_args.args[0] == "POST"
+        assert mock_request.call_args.args[1] == "/api/v1/supervisor/tasks"
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_get_task():
+    client = SupervisorClient("http://localhost:9200", "w-test")
+    mock_response = _make_mock_response({
+        "task": {"task_id": "t1", "status": "running"},
+    })
+
+    with patch.object(client._client, "request", AsyncMock(return_value=mock_response)):
+        result = await client.get_task("t1")
+        assert result["status"] == "running"
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_wait_for_task_polls_until_terminal_state():
+    client = SupervisorClient("http://localhost:9200", "w-test")
+    client._sleep = AsyncMock()
+
+    with patch.object(
+        client,
+        "get_task",
+        AsyncMock(side_effect=[
+            {"task_id": "t1", "status": "running"},
+            {"task_id": "t1", "status": "completed", "result": "done"},
+        ]),
+    ):
+        result = await client.wait_for_task("t1", poll_interval_s=0.01, timeout_s=1.0)
+
+    assert result["result"] == "done"
+    client._sleep.assert_awaited_once_with(0.01)
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_client_is_available_false_on_request_error():
+    client = SupervisorClient("http://localhost:9200", "w-test")
+
+    with patch.object(client._client, "request", AsyncMock(side_effect=httpx.ConnectError("down"))):
+        assert await client.is_available() is False
+
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_client_report_progress():
     client = SupervisorClient("http://localhost:9200", "w-test")
     mock_response = _make_mock_response({"ok": True})

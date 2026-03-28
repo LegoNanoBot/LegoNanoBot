@@ -18,6 +18,7 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.delegate import DelegateToWorkerTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -28,6 +29,7 @@ from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
+from nanobot.worker.client import SupervisorClient
 from nanobot.xray.events import EventType
 
 if TYPE_CHECKING:
@@ -70,6 +72,7 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         memory_store: MemoryStore | None = None,
         routing_strategy: RoutingStrategy | None = None,
+        supervisor_client: SupervisorClient | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, WebSearchConfig
 
@@ -86,6 +89,9 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self.routing_strategy = routing_strategy
+        self._supervisor_client = supervisor_client
+        self._supervisor_tools_checked = supervisor_client is None
+        self._supervisor_available = False
 
         self.context = ContextBuilder(workspace, memory_store=memory_store)
         self.sessions = session_manager or SessionManager(workspace)
@@ -99,6 +105,8 @@ class AgentLoop:
             web_proxy=web_proxy,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            supervisor_client=supervisor_client,
+            default_mode="auto" if supervisor_client is not None else "local",
         )
 
         self._running = False
@@ -141,6 +149,20 @@ class AgentLoop:
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
+    async def _ensure_supervisor_tools(self) -> None:
+        if self._supervisor_tools_checked or self._supervisor_client is None:
+            return
+
+        self._supervisor_available = await self._supervisor_client.is_available()
+        self._supervisor_tools_checked = True
+
+        if self._supervisor_available and not self.tools.has("delegate_to_worker"):
+            self.tools.register(DelegateToWorkerTool(client=self._supervisor_client))
+        elif not self._supervisor_available:
+            self.tools.unregister("delegate_to_worker")
+
+        self.subagents.default_mode = "auto" if self._supervisor_available else "local"
+
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
         if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
@@ -165,7 +187,7 @@ class AgentLoop:
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron"):
+        for name in ("message", "spawn", "cron", "delegate_to_worker"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
@@ -383,6 +405,7 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         await self._connect_mcp()
+        await self._ensure_supervisor_tools()
         logger.info("Agent loop started")
 
         while self._running:
@@ -495,6 +518,9 @@ class AgentLoop:
             except (RuntimeError, BaseExceptionGroup):
                 pass  # MCP SDK cancel scope cleanup is noisy but harmless
             self._mcp_stack = None
+        if self._supervisor_client is not None:
+            await self._supervisor_client.close()
+            self._supervisor_client = None
 
     def stop(self) -> None:
         """Stop the agent loop."""
@@ -509,6 +535,7 @@ class AgentLoop:
         run_id: str | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+        await self._ensure_supervisor_tools()
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
@@ -660,6 +687,7 @@ class AgentLoop:
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
+        await self._ensure_supervisor_tools()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
