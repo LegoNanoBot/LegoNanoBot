@@ -170,6 +170,34 @@ async def test_report_progress(registry, _reg_worker):
 
 
 @pytest.mark.asyncio
+async def test_report_progress_notifies_listener() -> None:
+    class _Listener:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, str]] = []
+
+        async def on_task_event(self, task: Task, event_type: str) -> None:
+            self.events.append((event_type, task.task_id))
+
+    listener = _Listener()
+    registry = WorkerRegistry(heartbeat_timeout_s=5.0, task_event_listener=listener)
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    task = Task(instruction="do work")
+    await registry.create_task(task)
+    await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+
+    await registry.report_progress(
+        TaskProgressReport(
+            task_id=task.task_id,
+            worker_id="w1",
+            iteration=1,
+            message="halfway",
+        )
+    )
+
+    assert listener.events == [(SupervisorEventType.TASK_PROGRESS, task.task_id)]
+
+
+@pytest.mark.asyncio
 async def test_report_result(registry, _reg_worker):
     await _reg_worker()
     task = Task(instruction="do work")
@@ -191,6 +219,34 @@ async def test_report_result(registry, _reg_worker):
     w = await registry.get_worker("w1")
     assert w.status == WorkerStatus.ONLINE
     assert w.current_task_id is None
+
+
+@pytest.mark.asyncio
+async def test_report_result_notifies_terminal_listener() -> None:
+    class _Listener:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, str]] = []
+
+        async def on_task_event(self, task: Task, event_type: str) -> None:
+            self.events.append((event_type, task.task_id))
+
+    listener = _Listener()
+    registry = WorkerRegistry(heartbeat_timeout_s=5.0, task_event_listener=listener)
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    task = Task(instruction="do work")
+    await registry.create_task(task)
+    await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+
+    await registry.report_result(
+        TaskResultReport(
+            task_id=task.task_id,
+            worker_id="w1",
+            status=TaskStatus.COMPLETED,
+            result="done!",
+        )
+    )
+
+    assert listener.events == [(SupervisorEventType.TASK_COMPLETED, task.task_id)]
 
 
 @pytest.mark.asyncio
@@ -219,6 +275,34 @@ async def test_report_failed_result_requeues_task_with_retry(registry, _reg_work
     assert w is not None
     assert w.status == WorkerStatus.ONLINE
     assert w.current_task_id is None
+
+
+@pytest.mark.asyncio
+async def test_report_failed_result_notifies_terminal_listener_without_retry() -> None:
+    class _Listener:
+        def __init__(self) -> None:
+            self.events: list[tuple[str, str]] = []
+
+        async def on_task_event(self, task: Task, event_type: str) -> None:
+            self.events.append((event_type, task.task_id))
+
+    listener = _Listener()
+    registry = WorkerRegistry(heartbeat_timeout_s=5.0, task_event_listener=listener)
+    await registry.register_worker(WorkerRegisterRequest(worker_id="w1", name="worker-1"))
+    task = Task(instruction="do work", max_retries=0)
+    await registry.create_task(task)
+    await registry.claim_task(TaskClaimRequest(worker_id="w1"))
+
+    await registry.report_result(
+        TaskResultReport(
+            task_id=task.task_id,
+            worker_id="w1",
+            status=TaskStatus.FAILED,
+            error="boom",
+        )
+    )
+
+    assert listener.events == [(SupervisorEventType.TASK_FAILED, task.task_id)]
 
 
 @pytest.mark.asyncio

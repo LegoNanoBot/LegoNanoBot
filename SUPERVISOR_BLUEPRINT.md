@@ -9,8 +9,6 @@
 
 - [文档导航](#文档导航)
 - [架构全景](#架构全景)
-- [Phase 2 — 状态持久化与崩溃恢复](#phase-2--状态持久化与崩溃恢复)
-- [Phase 3 — 通道集成（双向桥接）](#phase-3--通道集成双向桥接)
 - [Phase 4 — Agent Loop 集成](#phase-4--agent-loop-集成)
 - [Phase 5 — 记忆与上下文共享](#phase-5--记忆与上下文共享)
 - [Phase 6 — 高级调度](#phase-6--高级调度)
@@ -29,6 +27,8 @@
 - 已完成归档：
   - [Phase 0 Release Note](docs/supervisor/release-notes/phase-0-mvp.md)
   - [Phase 1 Release Note](docs/supervisor/release-notes/phase-1-production-hardening.md)
+  - [Phase 2 Release Note](docs/supervisor/release-notes/phase-2-state-persistence-and-recovery.md)
+  - [Phase 3 Release Note](docs/supervisor/release-notes/phase-3-channel-integration.md)
 
 ## 已完成阶段摘要
 
@@ -39,6 +39,14 @@
 ### Phase 1 — 生产加固
 
 - 已完成，详细交付与测试结果见 [docs/supervisor/release-notes/phase-1-production-hardening.md](docs/supervisor/release-notes/phase-1-production-hardening.md)
+
+### Phase 2 — 状态持久化与崩溃恢复
+
+- 已完成，详细交付与恢复/重试/优雅关闭结果见 [docs/supervisor/release-notes/phase-2-state-persistence-and-recovery.md](docs/supervisor/release-notes/phase-2-state-persistence-and-recovery.md)
+
+### Phase 3 — 通道集成（双向桥接）
+
+- 已完成，详细交付与通道回传/路由/进度推送结果见 [docs/supervisor/release-notes/phase-3-channel-integration.md](docs/supervisor/release-notes/phase-3-channel-integration.md)
 
 ---
 
@@ -72,132 +80,6 @@
 │  └────────────┘  └─────────────┘  └──────────────┘                  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Phase 2 — 状态持久化与崩溃恢复
-
-**目标**：supervisor 重启后不丢失状态，支持紧急维护与版本升级。
-
-**前置依赖**：Phase 1
-
-### Task 2.1 — Registry 持久化后端
-
-**问题**：当前注册表纯内存，supervisor 进程重启 = 所有状态丢失。
-
-**实现**：
-- [x] 定义 `RegistryStore` 抽象接口：
-  ```python
-  class RegistryStore(ABC):
-      async def save_worker(self, worker: WorkerInfo) -> None
-      async def load_workers(self) -> list[WorkerInfo]
-      async def save_task(self, task: Task) -> None
-      async def load_tasks(self) -> list[Task]
-      async def save_plan(self, plan: Plan) -> None
-      async def load_plans(self) -> list[Plan]
-      async def delete_worker(self, worker_id: str) -> None
-      # ...
-  ```
-- [x] 实现 `SQLiteRegistryStore`（复用 X-Ray 的 SQLite 模式）
-- [x] `WorkerRegistry` 接受 `store: RegistryStore` 参数
-- [x] 启动时从 store 加载状态，关键操作后写入 store
-- [x] 保持内存态 dict 作为热缓存，store 作为持久层
-- [x] 测试：重启后状态恢复、并发写入安全
-
-**验收标准**：supervisor 重启后，未完成的任务和计划自动恢复。
-
----
-
-### Task 2.2 — 任务重试机制
-
-**问题**：任务失败后直接标记 FAILED，无重试机会。
-
-**实现**：
-- [x] `Task` 模型添加 `retry_count: int = 0` 和 `max_retries: int = 0`
-- [x] `report_result(status=FAILED)` 时检查 `retry_count < max_retries`：
-  - 是 → 状态回 PENDING + `retry_count += 1`
-  - 否 → 最终 FAILED
-- [x] 重试时自动选择不同 worker（避免重复故障）
-- [x] 计划步骤级别的重试策略
-- [x] 测试：重试次数耗尽、重试成功、重试分配到不同 worker
-
-**验收标准**：瞬时故障（LLM 超时、网络抖动）可自动重试。
-
----
-
-### Task 2.3 — Worker 优雅关闭
-
-**问题**：Worker 收到 SIGTERM 时应完成当前任务再退出，而非直接中断。
-
-**实现**：
-- [x] `WorkerRunner` 注册信号处理：`SIGTERM` / `SIGINT`
-- [x] 收到信号后：
-  1. 停止轮询新任务
-  2. 等待当前任务完成（或超时后强制中断）
-  3. 注销 worker
-  4. 退出
-- [x] 添加 `--drain-timeout` CLI 参数，控制优雅关闭等待时间
-- [x] 测试：信号处理 + 任务完成后退出
-
-**验收标准**：`kill <worker_pid>` 时 worker 完成当前任务后干净退出。
-
----
-
-## Phase 3 — 通道集成（双向桥接）
-
-**目标**：用户通过聊天通道发起的请求可以被路由到 supervisor 处理，结果自动回传给用户。
-
-**前置依赖**：Phase 1
-
-### Task 3.1 — 结果回传通道
-
-**问题**：任务模型已有 `origin_channel`、`origin_chat_id`，但结果无法回传。
-
-**实现**：
-- [ ] 新增 `SupervisorResultReporter` 类：
-  - 监听任务完成事件
-  - 构造 `OutboundMessage(channel=origin_channel, chat_id=origin_chat_id, content=result)`
-  - 通过 `MessageBus.publish_outbound()` 发送
-- [ ] 在 `supervisor` CLI 命令中初始化 ChannelManager（复用 gateway 的通道初始化逻辑）
-- [ ] 结果格式化：支持 markdown、代码块、长文本分段
-- [ ] 测试：任务完成 → 消息回传到正确通道
-
-**验收标准**：Worker 完成任务后，结果自动出现在用户的聊天窗口中。
-
----
-
-### Task 3.2 — 请求路由决策
-
-**问题**：目前所有聊天消息都走 AgentLoop 本地处理，无法路由到 supervisor。
-
-**实现**：
-- [x] 定义路由策略接口：
-  ```python
-  class RoutingStrategy(ABC):
-      async def should_delegate(self, message: InboundMessage) -> bool
-      async def create_task(self, message: InboundMessage) -> Task
-  ```
-- [x] 实现 `KeywordRoutingStrategy`：通过关键词（如 `/delegate`、`/plan`）触发
-- [x] 实现 `ComplexityRoutingStrategy`：通过 LLM 评估消息复杂度决定是否委派
-- [x] 在 `AgentLoop._dispatch()` 中注入路由决策点
-- [x] 测试：路由策略匹配与降级
-
-**验收标准**：用户发送 `/plan 重构认证模块` → supervisor 自动创建计划 → worker 分步执行 → 结果回传。
-
----
-
-### Task 3.3 — 进度实时推送
-
-**问题**：长时间运行的计划（多步骤、多 worker）用户看不到进度。
-
-**实现**：
-- [ ] Worker 每次迭代 `report_progress()` 时，supervisor 向原始通道推送进度消息
-- [ ] 进度消息格式：`"⏳ 步骤 2/5: 正在分析代码结构... (Worker: alpha)"`
-- [ ] 支持通道侧的进度合并/覆盖（避免消息洪水）
-- [ ] 计划级别进度：`"📋 计划进度: 3/5 步骤完成"`
-- [ ] 测试：多步骤计划的进度推送时序
-
-**验收标准**：用户在聊天中能实时看到多步骤任务的执行进度。
 
 ---
 

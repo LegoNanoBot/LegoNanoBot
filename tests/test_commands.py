@@ -536,6 +536,9 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
         async def restore(self) -> None:
             seen["registry_restore_called"] = True
 
+        async def get_plan(self, _plan_id: str):
+            return None
+
     class _FakeStore:
         def __init__(self, db_path: str) -> None:
             seen["db_path"] = db_path
@@ -569,10 +572,26 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
         async def serve(self) -> None:
             return None
 
+    class _FakeBus:
+        pass
+
+    class _FakeChannelManager:
+        def __init__(self, config, bus) -> None:
+            seen["channel_manager_config"] = config
+            seen["channel_manager_bus"] = bus
+
+        async def start_all(self) -> None:
+            seen["channels_start_called"] = True
+
+        async def stop_all(self) -> None:
+            seen["channels_stop_called"] = True
+
     monkeypatch.setattr("nanobot.supervisor.registry.WorkerRegistry", _FakeRegistry)
     monkeypatch.setattr("nanobot.supervisor.store.SQLiteRegistryStore", _FakeStore)
     monkeypatch.setattr("nanobot.supervisor.watchdog.WatchdogService", _FakeWatchdog)
     monkeypatch.setattr("nanobot.supervisor.app.create_supervisor_app", lambda **kwargs: object())
+    monkeypatch.setattr("nanobot.bus.queue.MessageBus", _FakeBus)
+    monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("uvicorn.Config", _FakeUvicornConfig)
     monkeypatch.setattr("uvicorn.Server", _FakeServer)
 
@@ -587,13 +606,14 @@ def test_supervisor_uses_configured_defaults(monkeypatch, tmp_path: Path) -> Non
     assert seen["store_init_called"] is True
     assert seen["registry_restore_called"] is True
     assert seen["store_close_called"] is True
-    assert seen["registry_kwargs"] == {
-        "heartbeat_timeout_s": 45.0,
-        "task_default_timeout_s": 222.0,
-        "task_default_max_iterations": 17,
-        "store": seen["store"],
-        "collector": None,
-    }
+    assert seen["channels_start_called"] is True
+    assert seen["channels_stop_called"] is True
+    assert seen["registry_kwargs"]["heartbeat_timeout_s"] == 45.0
+    assert seen["registry_kwargs"]["task_default_timeout_s"] == 222.0
+    assert seen["registry_kwargs"]["task_default_max_iterations"] == 17
+    assert seen["registry_kwargs"]["store"] == seen["store"]
+    assert seen["registry_kwargs"]["collector"] is None
+    assert seen["registry_kwargs"]["task_event_listener"] is not None
 
 
 def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -> None:
@@ -620,6 +640,9 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
         async def restore(self) -> None:
             seen["registry_restore_called"] = True
 
+        async def get_plan(self, _plan_id: str):
+            return None
+
     class _FakeStore:
         def __init__(self, db_path: str) -> None:
             seen["db_path"] = db_path
@@ -653,10 +676,26 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
         async def serve(self) -> None:
             return None
 
+    class _FakeBus:
+        pass
+
+    class _FakeChannelManager:
+        def __init__(self, config, bus) -> None:
+            seen["channel_manager_config"] = config
+            seen["channel_manager_bus"] = bus
+
+        async def start_all(self) -> None:
+            seen["channels_start_called"] = True
+
+        async def stop_all(self) -> None:
+            seen["channels_stop_called"] = True
+
     monkeypatch.setattr("nanobot.supervisor.registry.WorkerRegistry", _FakeRegistry)
     monkeypatch.setattr("nanobot.supervisor.store.SQLiteRegistryStore", _FakeStore)
     monkeypatch.setattr("nanobot.supervisor.watchdog.WatchdogService", _FakeWatchdog)
     monkeypatch.setattr("nanobot.supervisor.app.create_supervisor_app", lambda **kwargs: object())
+    monkeypatch.setattr("nanobot.bus.queue.MessageBus", _FakeBus)
+    monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
     monkeypatch.setattr("uvicorn.Config", _FakeUvicornConfig)
     monkeypatch.setattr("uvicorn.Server", _FakeServer)
 
@@ -688,8 +727,11 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
     assert seen["store_init_called"] is True
     assert seen["registry_restore_called"] is True
     assert seen["store_close_called"] is True
+    assert seen["channels_start_called"] is True
+    assert seen["channels_stop_called"] is True
     assert seen["registry_kwargs"]["heartbeat_timeout_s"] == 55.0
     assert seen["registry_kwargs"]["store"] == seen["store"]
+    assert seen["registry_kwargs"]["task_event_listener"] is not None
 
 
 def test_worker_cli_passes_drain_timeout(monkeypatch, tmp_path: Path) -> None:

@@ -14,6 +14,12 @@
 - [Phase 1 Release Note](release-notes/phase-1-production-hardening.md)
   - 记录生产加固阶段 Task 1.1 到 1.5 的交付、验证结果与收尾事项。
 
+- [Phase 2 Release Note](release-notes/phase-2-state-persistence-and-recovery.md)
+  - 记录状态持久化、任务重试与 worker 优雅关闭阶段的交付与验证结果。
+
+- [Phase 3 Release Note](release-notes/phase-3-channel-integration.md)
+  - 记录通道回传、路由策略与实时进度推送阶段的交付与验证结果。
+
 ## 建议用法
 
 - 看下一步要做什么：优先阅读 [活跃蓝图](../../SUPERVISOR_BLUEPRINT.md)

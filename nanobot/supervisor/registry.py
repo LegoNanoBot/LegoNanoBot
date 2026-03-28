@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from loguru import logger
 
@@ -29,6 +29,13 @@ if TYPE_CHECKING:
     from nanobot.xray.collector import EventCollector
 
 
+class TaskEventListener(Protocol):
+    """Async sink for supervisor task lifecycle notifications."""
+
+    async def on_task_event(self, task: Task, event_type: str) -> None:
+        """Handle a task event after registry state has been updated."""
+
+
 class WorkerRegistry:
     """In-memory registry of workers, tasks and plans.
 
@@ -44,6 +51,7 @@ class WorkerRegistry:
         store: RegistryStore | None = None,
         event_sink: "EventSink | None" = None,
         collector: "EventCollector | None" = None,
+        task_event_listener: TaskEventListener | None = None,
     ) -> None:
         self._lock = asyncio.Lock()
         self._workers: dict[str, WorkerInfo] = {}
@@ -54,6 +62,12 @@ class WorkerRegistry:
         self.task_default_max_iterations = task_default_max_iterations
         self._store = store
         self._event_sink = event_sink or (XRayCollectorEventSink(collector) if collector is not None else None)
+        self._task_event_listener = task_event_listener
+
+    async def _notify_task_event(self, task: Task | None, event_type: str | None) -> None:
+        if task is None or event_type is None or self._task_event_listener is None:
+            return
+        await self._task_event_listener.on_task_event(task, event_type)
 
     async def restore(self) -> None:
         if self._store is None:
@@ -335,12 +349,14 @@ class WorkerRegistry:
                 "message": rpt.message,
             },
         )
+        await self._notify_task_event(task, SupervisorEventType.TASK_PROGRESS)
         return task
 
     async def report_result(self, rpt: TaskResultReport) -> Task | None:
         plan_event_type: str | None = None
         plan_event_payload: dict[str, Any] | None = None
         task_event_type: str | None = None
+        notify_task: Task | None = None
         async with self._lock:
             task = self._tasks.get(rpt.task_id)
             if task is None or task.worker_id != rpt.worker_id:
@@ -397,6 +413,8 @@ class WorkerRegistry:
             task_error = task.error
             task_result = task.result
             persisted_plan = self._plans.get(task.plan_id) if task.plan_id else None
+            if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+                notify_task = task
 
         await self._save_task(task)
         await self._save_worker(worker)
@@ -423,6 +441,7 @@ class WorkerRegistry:
                 event_type=plan_event_type,
                 data=plan_event_payload,
             )
+        await self._notify_task_event(notify_task, task_event_type)
         return task
 
     async def cancel_task(self, task_id: str) -> Task | None:
@@ -659,6 +678,7 @@ class WorkerRegistry:
         """Fail tasks whose assigned runtime exceeds their timeout."""
         now = time.time()
         stale_tasks: list[Task] = []
+        notified_tasks: list[tuple[Task, str]] = []
         task_events: list[dict[str, Any]] = []
         plan_events: list[tuple[str, dict[str, Any]]] = []
         workers_to_save: dict[str, WorkerInfo] = {}
@@ -693,6 +713,14 @@ class WorkerRegistry:
                     "result_preview": "",
                     "result_len": 0,
                 })
+                notified_tasks.append((
+                    task,
+                    (
+                        SupervisorEventType.TASK_RETRIED
+                        if task.status == TaskStatus.PENDING
+                        else SupervisorEventType.TASK_FAILED
+                    ),
+                ))
 
                 if task.worker_id:
                     worker = self._workers.get(task.worker_id)
@@ -737,6 +765,8 @@ class WorkerRegistry:
                 event_type=event_type,
                 data=payload,
             )
+        for task, event_type in notified_tasks:
+            await self._notify_task_event(task, event_type)
         return stale_tasks
 
     async def evict_worker(self, worker_id: str, reason: str | None = None) -> list[Task]:

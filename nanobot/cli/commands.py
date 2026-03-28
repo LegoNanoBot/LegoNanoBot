@@ -1397,8 +1397,11 @@ def supervisor(
     watchdog_interval: float | None = typer.Option(None, "--watchdog-interval", help="Watchdog scan interval (seconds)"),
 ):
     """Start the supervisor node (control plane for distributed workers)."""
+    from nanobot.bus.queue import MessageBus
+    from nanobot.channels.manager import ChannelManager
     from nanobot.supervisor.app import create_supervisor_app
     from nanobot.supervisor.registry import WorkerRegistry
+    from nanobot.supervisor.result_reporter import SupervisorResultReporter
     from nanobot.supervisor.store import SQLiteRegistryStore
     from nanobot.supervisor.watchdog import WatchdogService
 
@@ -1418,6 +1421,9 @@ def supervisor(
         else cfg.supervisor.watchdog_interval_s
     )
     resolved_db_path = str((cfg.workspace_path / (db_path or cfg.supervisor.db_path)).resolve())
+    bus = MessageBus()
+    channels = ChannelManager(cfg, bus)
+    result_reporter = SupervisorResultReporter(bus)
 
     console.print(f"{__logo__} Starting supervisor on {resolved_host}:{resolved_port}...")
 
@@ -1472,7 +1478,9 @@ def supervisor(
         task_default_max_iterations=cfg.supervisor.task_default_max_iterations,
         store=registry_store,
         collector=collector,
+        task_event_listener=result_reporter,
     )
+    result_reporter.plan_lookup = registry.get_plan
 
     if registry_store is not None:
         asyncio.run(registry.restore())
@@ -1497,9 +1505,13 @@ def supervisor(
     async def _run_supervisor():
         await watchdog.start()
         try:
-            await server.serve()
+            await asyncio.gather(
+                server.serve(),
+                channels.start_all(),
+            )
         finally:
             watchdog.stop()
+            await channels.stop_all()
             if registry_store is not None:
                 await registry_store.close()
             if "event_store" in xray_kwargs:
