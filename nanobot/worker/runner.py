@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 import time
 import uuid
 from pathlib import Path
@@ -37,6 +38,7 @@ class WorkerRunner:
         max_iterations: int = 30,
         poll_interval_s: float = 3.0,
         heartbeat_interval_s: float = 30.0,
+        drain_timeout_s: float = 30.0,
         web_search_config: Any = None,
         web_proxy: str | None = None,
         exec_config: Any = None,
@@ -51,6 +53,7 @@ class WorkerRunner:
         self.max_iterations = max_iterations
         self.poll_interval_s = poll_interval_s
         self.heartbeat_interval_s = heartbeat_interval_s
+        self.drain_timeout_s = drain_timeout_s
         self.web_search_config = web_search_config
         self.web_proxy = web_proxy
         self.exec_config = exec_config
@@ -58,32 +61,120 @@ class WorkerRunner:
 
         self.client = supervisor_client or SupervisorClient(supervisor_url, self.worker_id)
         self._running = False
+        self._accepting_tasks = True
         self._current_task_id: str | None = None
+        self._shutdown_requested = False
+        self._shutdown_event = asyncio.Event()
+        self._active_execution_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         """Main loop: register → heartbeat + poll → execute → report."""
         self._running = True
-
-        await self._register_until_available()
-
-        # Start heartbeat in background
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        self._accepting_tasks = True
+        self._shutdown_requested = False
+        self._shutdown_event = asyncio.Event()
+        installed_signals = self._install_signal_handlers()
 
         try:
-            await self._poll_loop()
+            await self._register_until_available()
+            if not self._running:
+                return
+
+            # Start heartbeat in background
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+            try:
+                await self._poll_loop()
+            finally:
+                self._running = False
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
         finally:
             self._running = False
-            heartbeat_task.cancel()
-            try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
+            for sig in installed_signals:
+                try:
+                    asyncio.get_running_loop().remove_signal_handler(sig)
+                except (NotImplementedError, RuntimeError):
+                    pass
             await self.client.unregister()
             await self.client.close()
             logger.info("Worker {} shut down", self.worker_id)
 
     async def stop(self) -> None:
-        self._running = False
+        await self.request_shutdown(reason="stop requested")
+
+    async def request_shutdown(self, *, reason: str) -> None:
+        if self._shutdown_requested:
+            if self._active_execution_task is not None and not self._active_execution_task.done():
+                logger.warning(
+                    "Worker {} received repeated shutdown request ({}); interrupting task {}",
+                    self.worker_id,
+                    reason,
+                    self._current_task_id,
+                )
+                self._active_execution_task.cancel()
+            return
+
+        self._shutdown_requested = True
+        self._accepting_tasks = False
+        self._shutdown_event.set()
+
+        if self._active_execution_task is None or self._active_execution_task.done():
+            logger.info("Worker {} shutting down: {}", self.worker_id, reason)
+            self._running = False
+            return
+
+        logger.info(
+            "Worker {} draining task {} before shutdown (reason: {}, timeout: {}s)",
+            self.worker_id,
+            self._current_task_id,
+            reason,
+            self.drain_timeout_s,
+        )
+        asyncio.create_task(self._enforce_drain_timeout())
+
+    def _install_signal_handlers(self) -> list[signal.Signals]:
+        installed: list[signal.Signals] = []
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return installed
+
+        for sig_name in ("SIGINT", "SIGTERM"):
+            sig = getattr(signal, sig_name, None)
+            if sig is None:
+                continue
+            try:
+                loop.add_signal_handler(
+                    sig,
+                    lambda sig_name=sig_name: asyncio.create_task(
+                        self.request_shutdown(reason=f"signal {sig_name}")
+                    ),
+                )
+                installed.append(sig)
+            except (NotImplementedError, RuntimeError):
+                continue
+        return installed
+
+    async def _enforce_drain_timeout(self) -> None:
+        task = self._active_execution_task
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=self.drain_timeout_s)
+        except asyncio.TimeoutError:
+            if self._active_execution_task is not None and not self._active_execution_task.done():
+                logger.warning(
+                    "Worker {} drain timeout exceeded for task {}; interrupting task",
+                    self.worker_id,
+                    self._current_task_id,
+                )
+                self._active_execution_task.cancel()
+        except asyncio.CancelledError:
+            pass
 
     async def _register_until_available(self) -> None:
         while self._running:
@@ -97,7 +188,11 @@ class WorkerRunner:
                     e,
                     self.poll_interval_s,
                 )
-                await asyncio.sleep(self.poll_interval_s)
+                await self._wait_for_shutdown_or_timeout(self.poll_interval_s)
+
+        if self._shutdown_requested:
+            logger.info("Worker {} stopped before registration completed", self.worker_id)
+            return
 
         raise RuntimeError("Worker stopped before registration completed")
 
@@ -114,18 +209,30 @@ class WorkerRunner:
             await asyncio.sleep(self.heartbeat_interval_s)
 
     async def _poll_loop(self) -> None:
-        while self._running:
+        while self._running and self._accepting_tasks:
             try:
                 task_data = await self.client.claim_task()
                 if task_data is not None:
-                    await self._execute_task(task_data)
+                    self._active_execution_task = asyncio.create_task(self._execute_task(task_data))
+                    try:
+                        await self._active_execution_task
+                    finally:
+                        self._active_execution_task = None
+                        if self._shutdown_requested:
+                            self._running = False
                 else:
-                    await asyncio.sleep(self.poll_interval_s)
+                    await self._wait_for_shutdown_or_timeout(self.poll_interval_s)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("Poll loop error: {}", e)
-                await asyncio.sleep(self.poll_interval_s)
+                await self._wait_for_shutdown_or_timeout(self.poll_interval_s)
+
+    async def _wait_for_shutdown_or_timeout(self, delay: float) -> None:
+        try:
+            await asyncio.wait_for(self._shutdown_event.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            return
 
     async def _execute_task(self, task_data: dict[str, Any]) -> None:
         """Execute a claimed task using an LLM + tool loop (similar to SubagentManager)."""
@@ -168,6 +275,9 @@ class WorkerRunner:
                 )
             except Exception:
                 logger.error("Failed to report task timeout to supervisor")
+        except asyncio.CancelledError:
+            logger.warning("Task {} interrupted during worker shutdown", task_id)
+            raise
         except Exception as e:
             error_msg = str(e)
             logger.error("Task {} failed: {}", task_id, error_msg)

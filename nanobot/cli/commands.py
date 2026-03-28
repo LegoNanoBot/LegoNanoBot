@@ -1494,6 +1494,7 @@ def worker(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
     poll_interval: float = typer.Option(3.0, "--poll-interval", help="Task poll interval (seconds)"),
+    drain_timeout: float = typer.Option(30.0, "--drain-timeout", help="Max seconds to wait for current task during shutdown"),
 ):
     """Start a worker node that executes tasks from the supervisor."""
     from nanobot.worker.runner import WorkerRunner
@@ -1512,6 +1513,7 @@ def worker(
         model=cfg.agents.defaults.model,
         max_iterations=cfg.agents.defaults.max_tool_iterations,
         poll_interval_s=poll_interval,
+        drain_timeout_s=drain_timeout,
         web_search_config=cfg.tools.web.search,
         web_proxy=cfg.tools.web.proxy or None,
         exec_config=cfg.tools.exec,

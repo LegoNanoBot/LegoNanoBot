@@ -130,14 +130,14 @@
 **问题**：Worker 收到 SIGTERM 时应完成当前任务再退出，而非直接中断。
 
 **实现**：
-- [ ] `WorkerRunner` 注册信号处理：`SIGTERM` / `SIGINT`
-- [ ] 收到信号后：
+- [x] `WorkerRunner` 注册信号处理：`SIGTERM` / `SIGINT`
+- [x] 收到信号后：
   1. 停止轮询新任务
   2. 等待当前任务完成（或超时后强制中断）
   3. 注销 worker
   4. 退出
-- [ ] 添加 `--drain-timeout` CLI 参数，控制优雅关闭等待时间
-- [ ] 测试：信号处理 + 任务完成后退出
+- [x] 添加 `--drain-timeout` CLI 参数，控制优雅关闭等待时间
+- [x] 测试：信号处理 + 任务完成后退出
 
 **验收标准**：`kill <worker_pid>` 时 worker 完成当前任务后干净退出。
 

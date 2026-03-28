@@ -681,3 +681,46 @@ def test_supervisor_cli_overrides_config_defaults(monkeypatch, tmp_path: Path) -
     assert seen["store_close_called"] is True
     assert seen["registry_kwargs"]["heartbeat_timeout_s"] == 55.0
     assert seen["registry_kwargs"]["store"] == seen["store"]
+
+
+def test_worker_cli_passes_drain_timeout(monkeypatch, tmp_path: Path) -> None:
+    config_file = tmp_path / "instance" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("{}")
+
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "config-workspace")
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda _cfg: object())
+
+    class _FakeRunner:
+        def __init__(self, **kwargs) -> None:
+            seen["runner_kwargs"] = kwargs
+            self.worker_id = kwargs["worker_id"] or "w-fake"
+
+        async def run(self) -> None:
+            seen["runner_run_called"] = True
+
+    monkeypatch.setattr("nanobot.worker.runner.WorkerRunner", _FakeRunner)
+
+    result = runner.invoke(
+        app,
+        [
+            "worker",
+            "--config",
+            str(config_file),
+            "--drain-timeout",
+            "42",
+            "--poll-interval",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert seen["runner_run_called"] is True
+    assert seen["runner_kwargs"]["drain_timeout_s"] == 42.0
+    assert seen["runner_kwargs"]["poll_interval_s"] == 5.0
